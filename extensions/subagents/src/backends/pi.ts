@@ -46,8 +46,21 @@ const CHILD_EXCLUDED_TOOL_NAMES = [
   "subagent_check",
   "subagent_list",
   "subagent_send",
-  "workflow",
   "ask_user",
+] as const;
+
+/**
+ * Herdr read-only enforcement for the pi backend: every tool that can mutate
+ * the workspace or the outside world is excluded. `bash` goes too - a shell is
+ * a write tool wearing a read tool's clothes.
+ */
+const CHILD_WRITE_TOOL_NAMES = [
+  "bash",
+  "edit",
+  "multiedit",
+  "write",
+  "apply_patch",
+  "notebook_edit",
 ] as const;
 
 // --- Model + effort resolution -----------------------------------------------
@@ -293,7 +306,10 @@ const makePiSession = (
           resourceLoader: loader,
           model,
           thinkingLevel,
-          excludeTools: [...CHILD_EXCLUDED_TOOL_NAMES],
+          excludeTools: [
+            ...CHILD_EXCLUDED_TOOL_NAMES,
+            ...(task.readOnly ? CHILD_WRITE_TOOL_NAMES : []),
+          ],
         });
         // Start child extension session hooks/resources in headless mode.
         // A rejection here would otherwise leak the freshly created session:

@@ -18,32 +18,18 @@ import {
 } from "../shared/dashboard-state.ts";
 import {
   SUBAGENT_STATE_CHANNEL,
-  WORKFLOW_STATE_CHANNEL,
-  emptyWorkflowState,
-  isWorkflowSubagentSummary,
-  type StageName,
-  type WorkflowState,
-  type WorkflowSubagentSummary,
+  isSubagentSummary,
+  type SubagentSummary,
 } from "../shared/workflow-state.ts";
-import {
-  isValidTicketSnapshot,
-  type TicketSnapshot,
-} from "../shared/ticket-snapshot.ts";
 import { columns, renderFooter } from "./footer.ts";
-import { readStatusWidgetMaxLines as readMaxLinesFromSettings } from "./status-widget-settings.ts";
+import { pickWhimsy, renderWhimsy, type WhimsyLine } from "./whimsy.ts";
 import {
   normalizeMaxLines,
   renderStatusWidget,
   type StatusWidgetAgent,
   type StatusWidgetContext,
-  type StatusWidgetRoutineRecord,
-  type StatusWidgetSnapshotView,
-  type StatusWidgetState,
 } from "./status-widget.ts";
 
-// INV-19: rows reserved for the editor, the footer, and one spare row. The
-// surface emits at most `terminalRows - RESERVED_ROWS` lines so it never
-// occludes the prompt.
 const RESERVED_ROWS = 6;
 
 type Activity = "idle" | "working" | "done" | "error";
@@ -60,19 +46,7 @@ function formatDirectory(cwd: string) {
   return cwd.startsWith(`${home}/`) ? `~/${relative(home, cwd)}` : cwd;
 }
 
-function isWorkflowState(value: unknown): value is WorkflowState {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Record<string, unknown>;
-  return (
-    typeof state.status === "string" && typeof state.updatedAt === "number"
-  );
-}
-
-function titleFor(
-  ctx: ExtensionContext,
-  workflow: WorkflowState,
-  activity: Activity,
-) {
+function titleFor(ctx: ExtensionContext, activity: Activity) {
   const glyph =
     activity === "working"
       ? "·"
@@ -84,58 +58,16 @@ function titleFor(
   return `${glyph} π ${formatDirectory(ctx.cwd)}`;
 }
 
-/**
- * Validate a channel value as the widget's snapshot view. Rejects malformed
- * shapes so a bad publish never replaces the previous snapshot (INV-6); the
- * widget additionally isolates malformed individual records at render time.
- */
-function asStatusWidgetSnapshotView(
-  value: unknown,
-): StatusWidgetSnapshotView | undefined {
-  if (!isValidTicketSnapshot(value)) return undefined;
-  const snapshot: TicketSnapshot = value;
-  return {
-    capturedAt: snapshot.capturedAt,
-    records: snapshot.records.map(
-      ({ id, title, status, assignee, blockedBy, blocking }) => ({
-        id,
-        title,
-        status,
-        ...(assignee === undefined ? {} : { assignee }),
-        blockedBy,
-        blocking,
-      }),
-    ),
-    ...(snapshot.reason === undefined ? {} : { reason: snapshot.reason }),
-  };
-}
-
-export interface UiCustomizationOptions {
-  /**
-   * Resolve `workflow.statusWidget.maxLines` off the render path (PI-37):
-   * `0` means unlimited, values clamp to `[8, 200]`, default 40. Defaults to
-   * reading the agent settings file once per widget mount; injectable for
-   * deterministic tests.
-   */
-  readonly readStatusWidgetMaxLines?: () => number;
-}
-
-export default function uiCustomization(
-  pi: ExtensionAPI,
-  options: UiCustomizationOptions = {},
-) {
+export default function uiCustomization(pi: ExtensionAPI) {
   let modelInfo = emptyModelInfoState();
   let gitInfo = emptyGitInfoState();
-  let workflow = emptyWorkflowState();
-  let agents: WorkflowSubagentSummary[] = [];
-  // Epoch ms of the last subagent-state publish; readings are stamped with it
-  // so a quiet bus shows rows as stale (~) instead of falsely fresh.
+  let agents: SubagentSummary[] = [];
   let agentsAt = 0;
   let activity: Activity = "idle";
-  let ticketSnapshot: StatusWidgetSnapshotView | undefined;
-  let routinesSnapshot: readonly StatusWidgetRoutineRecord[] | undefined;
   let activeTui: { requestRender(force?: boolean): void } | undefined;
   let currentContext: ExtensionContext | undefined;
+  let whimsy: WhimsyLine | undefined;
+  let previousWhimsy: string | undefined;
 
   const refresh = () => activeTui?.requestRender();
   const stopModelListener = pi.events.on(MODEL_INFO_CHANNEL, (value) => {
@@ -148,60 +80,29 @@ export default function uiCustomization(
     gitInfo = value;
     refresh();
   });
-  const stopWorkflowListener = pi.events.on(WORKFLOW_STATE_CHANNEL, (value) => {
-    if (!isWorkflowState(value)) return;
-    workflow = value;
-    if (currentContext)
-      currentContext.ui.setTitle(titleFor(currentContext, workflow, activity));
-    refresh();
-  });
   const stopSubagentListener = pi.events.on(SUBAGENT_STATE_CHANNEL, (value) => {
     if (!Array.isArray(value)) return;
-    agents = value.filter(isWorkflowSubagentSummary);
+    agents = value.filter(isSubagentSummary);
     agentsAt = Date.now();
     refresh();
   });
   const stopRefreshListener = pi.events.on(REFRESH_CHANNEL, refresh);
-  // Routines snapshot (PI-31/32): the workflow extension emits an off-render,
-  // read-only summary; the widget only renders it (INV-10, INV-3).
-  const ROUTINES_SNAPSHOT_CHANNEL = "vraj:routines-snapshot";
-  const stopRoutinesListener = pi.events.on(
-    ROUTINES_SNAPSHOT_CHANNEL,
-    (value) => {
-      const records = Array.isArray(value)
-        ? value.filter(
-            (r): r is StatusWidgetRoutineRecord =>
-              r != null && typeof r === "object",
-          )
-        : undefined;
-      routinesSnapshot = records;
-      refresh();
-    },
-  );
-  // Ticket snapshot (PI-36): the workflow extension emits each completed
-  // off-render tracker poll read; the widget only renders it (INV-10, INV-3).
-  const TICKET_SNAPSHOT_CHANNEL = "vraj:ticket-snapshot";
-  const stopTicketListener = pi.events.on(TICKET_SNAPSHOT_CHANNEL, (value) => {
-    const view = asStatusWidgetSnapshotView(value);
-    if (view === undefined) return;
-    ticketSnapshot = view;
-    refresh();
-  });
-
-  const resolveMaxLines =
-    options.readStatusWidgetMaxLines ?? readMaxLinesFromSettings;
 
   const install = (ctx: ExtensionContext) => {
     if (ctx.mode !== "tui") return;
     currentContext = ctx;
     ctx.ui.setHeader((tui, theme) => {
       activeTui = tui;
+      const directoryLabel = formatDirectory(ctx.cwd);
       return {
         render(width: number) {
           const identity =
-            theme.fg("accent", "π") +
-            theme.fg("text", ` ${formatDirectory(ctx.cwd)}`);
-          return [columns(identity, "", width)];
+            theme.fg("accent", "π") + theme.fg("text", ` ${directoryLabel}`);
+          const identityWidth = 2 + directoryLabel.length;
+          const aside = renderWhimsy(whimsy, width - identityWidth - 2);
+          return [
+            columns(identity, aside ? theme.fg("dim", aside) : "", width),
+          ];
         },
         invalidate() {},
       };
@@ -244,8 +145,6 @@ export default function uiCustomization(
           try {
             statuses = Array.from(footerData.getExtensionStatuses().values());
           } catch {
-            // INV-6: a broken extension-status getter degrades the footer to
-            // the base lines rather than rendering partial statuses.
             return renderFooter({
               width,
               theme,
@@ -269,21 +168,10 @@ export default function uiCustomization(
       };
     });
 
-    // Register the belowEditor status widget (PI-20, enriched by PI-21).
     ctx.ui.setWidget?.(
       "vraj-status",
       (tui, _theme) => {
-        // Settings read happens here, once per widget mount — never inside
-        // render (INV-3, PI-37). A throwing resolver degrades to the default.
-        let maxLines: number;
-        try {
-          maxLines = resolveMaxLines();
-        } catch {
-          maxLines = normalizeMaxLines(undefined);
-        }
-        // Terminal height is captured here, once per widget mount — never
-        // inside render (INV-3, INV-19). A throwing/missing read degrades in
-        // render to the maxLines behaviour alone (INV-6).
+        const maxLines = normalizeMaxLines(undefined);
         let terminalRows: number | undefined;
         try {
           terminalRows = tui.terminal.rows;
@@ -324,11 +212,8 @@ export default function uiCustomization(
               maxLines,
               terminalRows,
               reservedRows: RESERVED_ROWS,
-              inputLines: [],
               now,
               agents: widgetAgents,
-              ticketSnapshot,
-              routines: routinesSnapshot,
             });
           },
           invalidate() {},
@@ -337,28 +222,28 @@ export default function uiCustomization(
       { placement: "belowEditor" },
     );
 
-    ctx.ui.setTitle(titleFor(ctx, workflow, activity));
+    ctx.ui.setTitle(titleFor(ctx, activity));
     pi.events.emit(REFRESH_CHANNEL, undefined);
   };
 
   pi.on("session_start", (_event, ctx) => {
     modelInfo = emptyModelInfoState();
     gitInfo = emptyGitInfoState();
-    workflow = emptyWorkflowState();
     agents = [];
     agentsAt = 0;
     activity = "idle";
-    ticketSnapshot = undefined;
+    previousWhimsy = whimsy?.text;
+    whimsy = pickWhimsy({ avoid: previousWhimsy });
     install(ctx);
   });
   pi.on("agent_start", (_event, ctx) => {
     activity = "working";
-    ctx.ui.setTitle(titleFor(ctx, workflow, activity));
+    ctx.ui.setTitle(titleFor(ctx, activity));
     refresh();
   });
   pi.on("agent_settled", (_event, ctx) => {
     activity = "done";
-    ctx.ui.setTitle(titleFor(ctx, workflow, activity));
+    ctx.ui.setTitle(titleFor(ctx, activity));
     refresh();
   });
   pi.on("agent_end", (event, ctx) => {
@@ -369,18 +254,13 @@ export default function uiCustomization(
       )
     )
       activity = "error";
-    ctx.ui.setTitle(titleFor(ctx, workflow, activity));
+    ctx.ui.setTitle(titleFor(ctx, activity));
   });
   pi.on("session_shutdown", (_event, ctx) => {
     stopModelListener();
     stopGitListener();
-    stopWorkflowListener();
     stopSubagentListener();
     stopRefreshListener();
-    stopRoutinesListener();
-    stopTicketListener();
-    routinesSnapshot = undefined;
-    ticketSnapshot = undefined;
     activeTui = undefined;
     currentContext = undefined;
     if (ctx.mode === "tui") {

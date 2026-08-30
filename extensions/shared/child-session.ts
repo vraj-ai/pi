@@ -17,7 +17,6 @@ export const CHILD_EXCLUDED_TOOL_NAMES = [
   "subagent_cancel",
   "subagent_check",
   "subagent_list",
-  "workflow",
   "ask_user",
 ] as const;
 

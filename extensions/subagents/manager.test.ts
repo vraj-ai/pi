@@ -12,7 +12,6 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { BackendRegistry, type SubagentBackend } from "./src/backend.ts";
 import { piBackend } from "./src/backends/pi.ts";
 import { makeStubBackend } from "./src/backends/stub.ts";
-import type { StageName } from "../shared/workflow-state.ts";
 import type { BackendName, ParentContext, SpawnTask } from "./src/domain.ts";
 import {
   SubagentManager,
@@ -56,7 +55,7 @@ const parent: ParentContext = {
 };
 
 function task(prompt: string): SpawnTask {
-  return { prompt, title: "test", cwd: process.cwd(), parent };
+  return { prompt, readOnly: true, title: "test", cwd: process.cwd(), parent };
 }
 
 async function withManager(
@@ -172,31 +171,6 @@ test("spawn origin propagates to ids, snapshots, and settlement", async () => {
   });
 });
 
-test("stage identity stays absent on helper snapshots and summaries", async () => {
-  await withManager(async (manager, runtime) => {
-    const stage = await runTool(
-      runtime,
-      manager.spawn("claude", { ...task("stage task"), stage: "debugger" }),
-    );
-    const helper = await runTool(
-      runtime,
-      manager.spawn("codex", task("helper task")),
-    );
-
-    assert.equal(stage.stage, "debugger");
-    assert.equal(Object.hasOwn(stage, "stage"), true);
-    assert.equal(Object.hasOwn(helper, "stage"), false);
-
-    const stageSummary = summarizeSubagent(stage);
-    const helperSummary = summarizeSubagent(helper);
-    assert.equal(stageSummary.stage, "debugger");
-    assert.equal(Object.hasOwn(stageSummary, "stage"), true);
-    assert.equal(Object.hasOwn(helperSummary, "stage"), false);
-
-    await runTool(runtime, manager.cancel([stage.id, helper.id]));
-  });
-});
-
 test("the global concurrency cap includes by-the-way sessions", async () => {
   await withManager(async (manager, runtime) => {
     const tasks: SpawnTask[] = [
@@ -299,79 +273,5 @@ test("send steers an idle subagent into another turn", async () => {
     const afterSecond = manager.view.get(snap.id);
     assert.equal(afterSecond?.status, "done");
     assert.match(afterSecond?.finalText ?? "", /Second turn/);
-  });
-});
-
-test("stage sends require the opened stage identity and redact displayed text", async () => {
-  await withManager(async (manager, runtime) => {
-    const stage = await runTool(
-      runtime,
-      manager.spawn("claude", { ...task("stage task"), stage: "debugger" }),
-    );
-    const helper = await runTool(
-      runtime,
-      manager.spawn("codex", task("helper task")),
-    );
-
-    await assert.rejects(
-      runTool(runtime, manager.sendStage(stage.id, "planner", "wrong stage")),
-      /destination no longer matches/,
-    );
-    await assert.rejects(
-      runTool(runtime, manager.sendStage(helper.id, "debugger", "not a stage")),
-      /destination no longer matches/,
-    );
-    for (const id of ["", "sa-forged", `${stage.id}\u0000`]) {
-      await assert.rejects(
-        runTool(runtime, manager.sendStage(id, "debugger", "forged id")),
-        /destination no longer matches/,
-      );
-    }
-    await assert.rejects(
-      runTool(
-        runtime,
-        manager.sendStage(
-          stage.id,
-          "not-a-stage" as unknown as StageName,
-          "malformed stage",
-        ),
-      ),
-      /destination no longer matches/,
-    );
-    await assert.rejects(
-      runTool(
-        runtime,
-        manager.spawn("codex", {
-          ...task("malformed stage"),
-          stage: "not-a-stage" as unknown as StageName,
-        }),
-      ),
-      /Invalid workflow stage/,
-    );
-
-    const exposedStage = manager.view.get(stage.id);
-    assert.ok(exposedStage);
-    Object.defineProperty(exposedStage, "stage", {
-      configurable: true,
-      value: "planner",
-      writable: true,
-    });
-    await assert.rejects(
-      runTool(runtime, manager.sendStage(stage.id, "planner", "forged stage")),
-      /destination no longer matches/,
-    );
-
-    await runTool(
-      runtime,
-      manager.sendStage(
-        stage.id,
-        "debugger",
-        "Authorization: Bearer STAGE_MANAGER_SECRET",
-      ),
-    );
-    await runTool(runtime, manager.waitFor([stage.id, helper.id]));
-    const transcript = manager.view.get(stage.id)?.transcript ?? [];
-    assert.doesNotMatch(JSON.stringify(transcript), /STAGE_MANAGER_SECRET/);
-    assert.match(JSON.stringify(transcript), /\[REDACTED\]/);
   });
 });

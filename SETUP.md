@@ -16,6 +16,27 @@ Windows PowerShell:
 
 Both commands run the same Node installer. By default it installs to `~/.pi/agent` on macOS/Linux and `$HOME\.pi\agent` on Windows. It links resources when possible and copies them when Windows or filesystem policy rejects symlinks.
 
+## Rolling back an install
+
+The installer is transactional. Every non-dry-run install writes a backup and a
+`.rollback-manifest` *before* touching anything, and a failure part-way through
+restores the agent directory and reports the failure rather than leaving a
+half-installed state.
+
+To undo a completed install:
+
+```sh
+./scripts/install.mjs --rollback                    # the newest backup
+node scripts/install.mjs --rollback <backup-path>   # a specific one
+```
+
+Rollback removes what the install added, moves the user's own files back,
+restores the pre-install `settings.json`, and leaves entries the install never
+touched alone. `--rollback <path>` only accepts a direct child of the target's
+own `backups/` directory named `pi-agent-<timestamp>-<pid>`. If any entry
+cannot be restored it says so and keeps the backup, rather than reporting
+success.
+
 ## Backup and rollback
 
 Every non-dry-run install creates `pi-agent-<timestamp>-<pid>` under the target agent directory's `backups` folder (for example `~/.pi/agent/backups/pi-agent-<timestamp>-<pid>` or `$HOME\.pi\agent\backups\pi-agent-<timestamp>-<pid>`). List backups before selecting one:
@@ -52,7 +73,7 @@ else
     echo "Rollback provenance manifest missing; refusing ambiguous backup" >&2
     exit 1
   fi
-  for name in extensions skills themes SYSTEM.md keybindings.json node_modules; do
+  for name in extensions skills themes SYSTEM.md keybindings.json node_modules settings.json; do
     saved="$backup/$name"
     target="$agent_dir/$name"
     if [ -e "$manifest/$name.present" ]; then
@@ -99,7 +120,7 @@ if (-not (Test-Path -LiteralPath $complete)) {
   function Test-ManagedEntry($path) {
     return $null -ne (Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue)
   }
-  foreach ($name in "extensions", "skills", "themes", "SYSTEM.md", "keybindings.json", "node_modules") {
+  foreach ($name in "extensions", "skills", "themes", "SYSTEM.md", "keybindings.json", "node_modules", "settings.json") {
     $saved = Join-Path $backup $name
     $target = Join-Path $agentDir $name
     if (Test-Path -LiteralPath (Join-Path $manifest "$name.present")) {
@@ -129,7 +150,7 @@ if (-not (Test-Path -LiteralPath $complete)) {
 }
 ```
 
-This move-based rollback restores those saved files byte-for-byte. It does **not** restore `settings.json`, `.env`, authentication credentials, models (downloads or configuration), sessions, or other Pi state; preserve those separately before installing.
+This move-based rollback restores those saved files byte-for-byte, including the pre-install `settings.json` the installer copied into the backup before merging. It does **not** restore `.env`, authentication credentials, models (downloads or configuration), sessions, or other Pi state; preserve those separately before installing.
 
 ## Push proof
 
@@ -163,11 +184,19 @@ The `file-search` extension registers `fd` and `rg` as model tools. No setup is 
 
 ## Theme
 
-Add the included theme to `~/.pi/agent/settings.json` while keeping your existing settings:
+The installer sets `cobalt-ink` as the default. Three themes ship in `themes/`:
+
+| Theme | Look |
+| --- | --- |
+| `cobalt-ink` | Deep cobalt blue, cyan accent. The default. |
+| `vraj-ink` | OLED black, cyan/violet accents. |
+| `github-dark-default` | The familiar GitHub dark palette. |
+
+To pick a different one, set it in `~/.pi/agent/settings.json` while keeping your existing settings:
 
 ```json
 {
-  "theme": "github-dark-default"
+  "theme": "vraj-ink"
 }
 ```
 

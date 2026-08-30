@@ -23,6 +23,9 @@
     "check": "tsc --noEmit",
     "format": "prettier --write \"extensions/**/*.{ts,cjs}\" \"*.json\"",
     "format:check": "prettier --check \"extensions/**/*.{ts,cjs}\" \"*.json\"",
-    "test": "node --test --experimental-strip-types extensions/*/*.test.ts && npm --prefix extensions/file-search test"
+    "test": "node --test --experimental-strip-types extensions/*/*.test.ts && node --test scripts/*.test.mjs && npm --prefix extensions/file-search test",
+    "check:provenance": "node scripts/check-provenance.mjs",
+    "update-upstream": "node scripts/update-upstream.mjs",
+    "gates": "npm run check && npm run check:provenance && npm test"
   }
 }

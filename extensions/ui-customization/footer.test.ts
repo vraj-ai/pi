@@ -4,15 +4,14 @@ import { test } from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   SUBAGENT_STATE_CHANNEL,
-  WORKFLOW_STATE_CHANNEL,
-  type WorkflowSubagentSummary,
+  type SubagentSummary,
 } from "../shared/workflow-state.ts";
 import { renderFooter, type FooterState } from "./footer.ts";
 import uiCustomization from "./index.ts";
 
 const plainTheme = { fg: (_color: string, text: string) => text };
 
-function agent(overrides: Partial<WorkflowSubagentSummary> = {}) {
+function agent(overrides: Partial<SubagentSummary> = {}) {
   return {
     id: "a1",
     title: "agent",
@@ -208,9 +207,7 @@ test("PI-26 dedup: footer renders no mode/route/stage-row/issue tokens", () => {
     pr: "main · 2 changed",
     statuses: [] as readonly string[],
     routeStatus: "fleet/coder · running · 1 running · 4 tracked",
-    agents: [
-      agent({ stage: "coder", modelLabel: "deepseek-v4-flash", turns: 6 }),
-    ],
+    agents: [agent({ modelLabel: "deepseek-v4-flash", turns: 6 })],
   } as const;
   const lines = renderFooter(legacy as unknown as FooterState);
 
@@ -287,16 +284,9 @@ test("live state reaches the footer as base lines plus extension statuses only",
   const footer = footerFactory({ requestRender() {} }, theme, {
     getExtensionStatuses: () => new Map(),
   });
-  pi.events.emit(WORKFLOW_STATE_CHANNEL, {
-    status: "running",
-    activeStage: "coder",
-    route: { mode: "fleet", stage: "coder" },
-    updatedAt: Date.now(),
-  });
   pi.events.emit(SUBAGENT_STATE_CHANNEL, [
     agent({
-      id: "stage-agent",
-      stage: "coder",
+      id: "sa-1",
       contextTokens: 25,
       contextWindow: 100,
     }),
@@ -307,7 +297,7 @@ test("live state reaches the footer as base lines plus extension statuses only",
   // live in the belowEditor widget. The footer stays at the 2 base lines.
   const lines = footer.render(80);
   assert.equal(lines.length, 2);
-  assert.ok(!lines.some((line) => line.includes("stage-agent")));
+  assert.ok(!lines.some((line) => line.includes("sa-1")));
   assert.ok(!lines.some((line) => line.includes("%")));
   assert.ok(!lines.some((line) => line.includes("helper-agent")));
   assert.ok(lines[0].includes("/repo"));

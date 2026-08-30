@@ -18,10 +18,8 @@ export interface PickerTriggerInput {
 }
 
 export interface SubagentPickerSettings {
-  readonly workflow?: {
-    readonly subagentPicker?: {
-      readonly downArrow?: unknown;
-    };
+  readonly ["vraj.subagents.picker"]?: {
+    readonly downArrow?: unknown;
   };
 }
 
@@ -53,7 +51,7 @@ export function resolvePickerEnabled(
   settings?: SubagentPickerSettings | null,
 ): boolean {
   try {
-    return settings?.workflow?.subagentPicker?.downArrow !== false;
+    return settings?.["vraj.subagents.picker"]?.downArrow !== false;
   } catch {
     return true;
   }

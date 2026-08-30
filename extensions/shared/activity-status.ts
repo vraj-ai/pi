@@ -12,7 +12,7 @@ const SQUARE = "■";
 
 export function formatActivityStatus(
   theme: Theme,
-  label: "subagents" | "workflows",
+  label: "subagents",
   counts: ActivityCounts,
 ) {
   const parts: string[] = [];

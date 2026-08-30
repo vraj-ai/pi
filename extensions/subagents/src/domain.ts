@@ -9,9 +9,20 @@
 
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { Data } from "effect";
-import type { StageName } from "../../shared/workflow-state.ts";
 
-export const BACKEND_NAMES = ["pi", "claude", "codex"] as const;
+/**
+ * Herdr fleet slugs. `pi`/`claude`/`codex` have native protocol backends; the
+ * rest are driven through the generic one-shot CLI backend (./backends/cli.ts).
+ * Every harness runs read-only and cannot be taken over.
+ */
+export const BACKEND_NAMES = [
+  "pi",
+  "claude",
+  "codex",
+  "agy",
+  "omp",
+  "grok",
+] as const;
 export type BackendName = (typeof BACKEND_NAMES)[number];
 
 /** Who initiated the session. User asides stay out of model-facing tooling. */
@@ -61,8 +72,14 @@ export interface SpawnTask {
   readonly model?: string;
   /** Shared effort scale; each backend maps it to its native equivalent. */
   readonly reasoningEffort?: ReasoningEffort;
-  /** Workflow stage that spawned this agent; helpers leave it unset. */
-  readonly stage?: StageName;
+  /**
+   * Herdr invariant: every subagent is read-only. Backends translate this to
+   * their native lever (pi excludes write tools, claude allowlists read tools,
+   * codex uses its read-only sandbox, CLI harnesses append a code-owned
+   * read-only profile). A backend that cannot enforce it must fail the spawn
+   * rather than downgrade.
+   */
+  readonly readOnly: boolean;
   readonly parent: ParentContext;
 }
 
@@ -200,7 +217,6 @@ export interface SubagentSnapshot {
   readonly prompt: string;
   readonly cwd: string;
   readonly status: SubagentStatus;
-  readonly stage?: StageName;
   readonly createdAt: number;
   readonly settledAt?: number;
   readonly errorText?: string;

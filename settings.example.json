@@ -1,5 +1,5 @@
 {
-  "theme": "vraj-ink",
+  "theme": "cobalt-ink",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.6-sol",
   "defaultThinkingLevel": "high",
@@ -7,20 +7,8 @@
   "hideThinkingBlock": true,
   "collapseChangelog": true,
   "enableInstallTelemetry": false,
-  "packages": ["git:github.com/DietrichGebert/ponytail"],
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
-  "workflow": {
-    "trackerPollMs": 10000,
-    "subagentPicker": {
-      "downArrow": true
-    },
-    "statusWidget": {
-      "maxLines": 40
-    },
-    "repositories": ["~/Work/pi-agent"],
-    "routines": []
-  },
   "compaction": {
     "enabled": true,
     "reserveTokens": 16384,
@@ -30,5 +18,11 @@
     "enabled": true,
     "maxRetries": 3,
     "baseDelayMs": 2000
-  }
+  },
+  "vraj.skills.disabled": [],
+  "vraj.subagents.cli.agy": {},
+  "vraj.subagents.cli.omp": {},
+  "vraj.subagents.cli.grok": {},
+  "vraj.usage.budgets": [],
+  "vraj.tools.lean": true
 }

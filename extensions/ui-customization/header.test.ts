@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  SUBAGENT_STATE_CHANNEL,
-  WORKFLOW_STATE_CHANNEL,
-} from "../shared/workflow-state.ts";
+import { SUBAGENT_STATE_CHANNEL } from "../shared/workflow-state.ts";
 import uiCustomization from "./index.ts";
 
 const theme = { fg: (_color: string, text: string) => text };
@@ -67,26 +64,11 @@ test("header keeps only identity and the footer carries no workflow status", () 
   const footer = footerFactory({ requestRender() {} }, theme, {
     getExtensionStatuses: () => new Map(),
   });
-  pi.events.emit(WORKFLOW_STATE_CHANNEL, {
-    status: "running",
-    activeStage: "coder",
-    route: { mode: "fleet", stage: "coder" },
-    updatedAt: Date.now(),
-  });
   pi.events.emit(SUBAGENT_STATE_CHANNEL, [
     {
-      id: "stage-agent",
-      title: "stage agent",
-      status: "running",
-      backend: "pi",
-      stage: "coder",
-      startedAt: Date.now(),
-      turns: 1,
-    },
-    {
-      id: "helper-agent",
+      id: "sa-1",
       title: "helper agent",
-      status: "done",
+      status: "running",
       backend: "pi",
       startedAt: Date.now(),
       turns: 1,

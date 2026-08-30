@@ -200,6 +200,11 @@ test("install backup can be listed and the documented rollback restores isolated
         readFileSync(join(agentDir, "sessions", "before.json"), "utf8"),
         "before session\n",
       );
+      assert.equal(
+        readFileSync(join(agentDir, "settings.json"), "utf8"),
+        '{"before":"settings"}\n',
+        "rollback must restore the pre-install settings, not the merged copy",
+      );
 
       const afterFirstRollback = new Map(
         resources
@@ -226,7 +231,11 @@ test("install backup can be listed and the documented rollback restores isolated
     assert.match(text, /\.pi[/\\]agent[/\\]backups[/\\]pi-agent-/);
     assert.match(
       text,
-      /does \*\*not\*\* restore[\s\S]*settings\.json[\s\S]*\.env[\s\S]*authentication[\s\S]*models[\s\S]*sessions/i,
+      /including the pre-install `settings\.json`/i,
+    );
+    assert.match(
+      text,
+      /does \*\*not\*\* restore[\s\S]*\.env[\s\S]*authentication[\s\S]*models[\s\S]*sessions/i,
     );
     assert.match(
       text,

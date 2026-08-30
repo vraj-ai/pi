@@ -21,7 +21,6 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { STAGE_NAMES, type StageName } from "../../shared/workflow-state.ts";
 import { redactSecrets } from "../../summaries/src/transcript.ts";
 import type { SubagentBackend, SubagentSession } from "./backend.ts";
 import { BackendRegistry } from "./backend.ts";
@@ -82,7 +81,6 @@ interface MutableSnapshot {
   prompt: string;
   cwd: string;
   status: SubagentStatus;
-  stage?: StageName;
   createdAt: number;
   settledAt?: number;
   errorText?: string;
@@ -98,7 +96,6 @@ interface MutableSnapshot {
 
 interface Entry {
   snapshot: MutableSnapshot;
-  readonly stage?: StageName;
   session: SubagentSession;
   scope: Scope.Closeable;
   pump?: Fiber.Fiber<void>;
@@ -119,15 +116,8 @@ export interface SubagentReadModel {
   subscribe(listener: () => void): () => void;
   /** Per-subagent notification (takeover view). */
   subscribeTo(id: string, listener: () => void): () => void;
-  /** Fire-and-forget: steer/continue a non-workflow subagent (takeover input). */
+  /** Fire-and-forget: steer/continue a subagent. */
   requestSend(id: string, text: string): void;
-  /** Explicit stage-view send; the selected stage must still match. */
-  requestStageSend(
-    id: string,
-    stage: StageName,
-    text: string,
-    onError: (message: string) => void,
-  ): void;
   /** Fire-and-forget: abort a running subagent (dashboard `x`, takeover). */
   requestAbort(id: string): void;
   /**
@@ -172,12 +162,6 @@ export interface SubagentManagerShape {
     ids: ReadonlyArray<string>,
   ): Effect.Effect<ReadonlyArray<CancelResult>>;
   send(id: string, text: string): Effect.Effect<void, SendError>;
-  /** Explicit stage-view send; rejects a stale or helper destination. */
-  sendStage(
-    id: string,
-    stage: StageName,
-    text: string,
-  ): Effect.Effect<void, SendError>;
   get(id: string): Effect.Effect<SubagentSnapshot | undefined>;
   readonly list: Effect.Effect<ReadonlyArray<SubagentSnapshot>>;
   readonly disposeAll: Effect.Effect<void>;
@@ -211,9 +195,6 @@ const makeManager = Effect.gen(function* () {
   let disposed = false;
   let onSettled:
     ((snap: SubagentSnapshot, consumed: boolean) => void) | undefined;
-
-  const isStageName = (value: unknown): value is StageName =>
-    typeof value === "string" && STAGE_NAMES.includes(value as StageName);
 
   const notify = (id?: string) => {
     const waiters = changeWaiters;
@@ -450,9 +431,6 @@ const makeManager = Effect.gen(function* () {
               message: "Subagent manager is shutting down.",
             });
           }
-          if (task.stage !== undefined && !isStageName(task.stage)) {
-            return new SpawnError({ message: "Invalid workflow stage." });
-          }
           if (runningCount() + reserved >= MAX_RUNNING) {
             return new ConcurrencyLimitError({
               message: `Max ${MAX_RUNNING} subagents can run concurrently. Wait for one to finish before spawning another.`,
@@ -489,7 +467,6 @@ const makeManager = Effect.gen(function* () {
         }
 
         const origin = task.origin ?? "model";
-        const stage = isStageName(task.stage) ? task.stage : undefined;
         const id =
           origin === "btw" ? `btw-${++btwCounter}` : `sa-${++modelCounter}`;
         const meta = yield* session.meta;
@@ -502,7 +479,6 @@ const makeManager = Effect.gen(function* () {
             prompt: task.prompt,
             cwd: task.cwd,
             status: "running",
-            ...(stage === undefined ? {} : { stage }),
             createdAt: Date.now(),
             meta,
             usage: { contextWindow: meta.contextWindow },
@@ -512,7 +488,6 @@ const makeManager = Effect.gen(function* () {
             finalText: "",
             turns: 0,
           },
-          stage,
           session,
           scope,
           liveToolMap: new Map(),
@@ -680,18 +655,6 @@ const makeManager = Effect.gen(function* () {
       return entry.session.send(text);
     });
 
-  const sendStage = (id: string, stage: StageName, text: string) =>
-    Effect.suspend((): Effect.Effect<void, SendError> => {
-      const entry = entries.get(id);
-      if (!entry || !isStageName(stage) || entry.stage !== stage) {
-        return new SendError({
-          message:
-            "Stage view destination no longer matches the selected stage.",
-        });
-      }
-      return send(id, redactSecrets(text));
-    });
-
   const disposeAll = Effect.gen(function* () {
     disposed = true;
     const all = [...entries.values()];
@@ -739,16 +702,6 @@ const makeManager = Effect.gen(function* () {
     requestSend: (id, text) => {
       runDetached(send(id, text).pipe(Effect.ignore));
     },
-    requestStageSend: (id, stage, text, onError) => {
-      runDetached(
-        sendStage(id, stage, text).pipe(
-          Effect.tapError((error) =>
-            Effect.sync(() => onError(bounded(error.message))),
-          ),
-          Effect.ignore,
-        ),
-      );
-    },
     requestAbort: (id) => {
       const entry = entries.get(id);
       if (!entry) return;
@@ -770,7 +723,6 @@ const makeManager = Effect.gen(function* () {
     waitFor,
     cancel,
     send,
-    sendStage,
     get: (id) => Effect.sync(() => entries.get(id)?.snapshot),
     list: Effect.sync(() => [...entries.values()].map((e) => e.snapshot)),
     disposeAll,

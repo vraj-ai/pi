@@ -2,16 +2,17 @@
 
 /** Describes subagent_spawn, including harnesses and the fixed concurrency cap. */
 export const SUBAGENT_SPAWN_TOOL_DESCRIPTION =
-  "Spawn a background subagent: a fully autonomous, headless agent with its own context window and the selected harness's normal host permissions. You choose the harness it runs on: pi (in-process pi session, inherits this environment's tools and config), claude (Claude Code), or codex (Codex CLI). Fire-and-forget: this returns immediately with an id. The subagent's final output is queued back to you as a message when it settles, or collect it explicitly with subagent_wait. Children cannot orchestrate more agents/workflows or ask the user, and cannot see this conversation, so the prompt must be self-contained. Only use trusted working directories. Max 4 subagents can be running at once across all harnesses.";
+  "Spawn a background subagent from the Herdr fleet: a headless agent with its own context window, running READ-ONLY. It can read, search, and analyse, but cannot edit or write files, run shell commands, or otherwise change the workspace - so use it for investigation and review, and make the changes yourself. Harnesses: pi (in-process pi session, inherits this environment's tools and config), claude (Claude Code), codex (Codex CLI), agy (Antigravity CLI), omp (oh-my-pi CLI), grok (Grok CLI). agy/omp/grok are optional and fail fast with a clear message when the CLI is not installed. Fire-and-forget: this returns immediately with an id. The subagent's final output is queued back to you as a message when it settles, or collect it explicitly with subagent_wait. Children cannot orchestrate more agents/workflows or ask the user, and cannot see this conversation, so the prompt must be self-contained. Only use trusted working directories. Max 4 subagents can be running at once across all harnesses.";
 
 /** Adds background subagent delegation to the parent model's available-tools prompt. */
 export const SUBAGENT_SPAWN_PROMPT_SNIPPET =
-  "Spawn a background subagent on a chosen harness (pi, Claude Code, or Codex; own context, normal tools) for a self-contained task";
+  "Spawn a read-only background subagent on a chosen harness (pi, claude, codex, agy, omp, grok) for a self-contained investigation";
 
 /** Guides the parent model to delegate standalone tasks and avoid unnecessary blocking waits. */
 export const SUBAGENT_SPAWN_PROMPT_GUIDELINES = [
   "Use subagent_spawn to delegate self-contained tasks that can run in the background; give it a complete, standalone prompt.",
-  "Pick the subagent harness deliberately: pi unless you have a reason to prefer Claude Code or Codex (e.g. the user asked for one, or the task suits that harness).",
+  "Pick the subagent harness deliberately: pi unless you have a reason to prefer another (the user asked for one, or the task suits that harness). agy, omp, and grok require their CLI on PATH.",
+  "Subagents are read-only: delegate reading, searching, reviewing, and analysis. Never delegate an edit, a write, or a shell command - do those yourself.",
   "After subagent_spawn, keep working; results arrive automatically. Only call subagent_wait when you cannot proceed without the result.",
 ];
 
@@ -21,11 +22,11 @@ export const SUBAGENT_SPAWN_PARAMETER_DESCRIPTIONS = {
     "Task prompt for the subagent. Must be self-contained: include all needed context, file paths, and what to report back.",
   name: "Short human-readable name for this subagent, shown in listings and the UI",
   harness:
-    'Harness to run the subagent on: "pi" (in-process pi session; inherits this environment), "claude" (Claude Code), or "codex" (Codex CLI). Choose deliberately per task.',
+    'Harness to run the read-only subagent on: "pi" (in-process pi session; inherits this environment), "claude" (Claude Code), "codex" (Codex CLI), "agy" (Antigravity CLI), "omp" (oh-my-pi CLI), or "grok" (Grok CLI). Choose deliberately per task; the last three need their CLI installed.',
   workingDir:
     "Trusted working directory for the autonomous child (default: current working directory)",
   model:
-    'Model hint, interpreted by the chosen harness (pi: "provider/model-id" or model id; claude: model alias like "sonnet"/"opus"; codex: model slug). Omit for the harness default (pi inherits the current model).',
+    'Model hint, interpreted by the chosen harness (pi: "provider/model-id" or model id; claude: model alias like "sonnet"/"opus"; codex/agy/omp/grok: model slug). Omit for the harness default (pi inherits the current model).',
   reasoningEffort:
     "Reasoning effort on a shared scale; the harness maps it to its nearest native equivalent (pi thinking level, codex reasoning effort, claude thinking budget). Omit for the harness default (pi inherits the current level).",
 };
@@ -39,7 +40,7 @@ export function buildSubagentSpawnResult(options: {
   cwd: string;
 }) {
   return (
-    `Spawned subagent ${options.id} "${options.title}" (${options.harness}: ${options.modelLabel}, ${options.cwd}).\n` +
+    `Spawned read-only subagent ${options.id} "${options.title}" (${options.harness}: ${options.modelLabel}, ${options.cwd}).\n` +
     `It runs in the background. Its result will be delivered to you when it finishes, ` +
     `or use subagent_wait(ids: ["${options.id}"]) to block for it, subagent_cancel to stop it, subagent_check to peek, subagent_list to see all.`
   );

@@ -12,7 +12,7 @@ import type { SubagentSnapshot } from "./src/domain.ts";
 import type { SubagentReadModel } from "./src/manager.ts";
 import {
   openSubagentPicker,
-  openSubagentTakeover,
+  openSubagentTranscript,
   reconcileDashboardSelection,
   sortSubagents,
   type DashboardSelection,
@@ -31,8 +31,6 @@ type TakeoverInternals = {
   input: { onSubmit?: (value: string) => void };
 };
 
-type StageSend = { id: string; stage: string; text: string };
-
 type DashboardFactory = (
   tui: TUI,
   theme: Theme,
@@ -40,7 +38,7 @@ type DashboardFactory = (
   done: (result: string | null) => void,
 ) => TakeoverComponent;
 
-const snapshot = (stage?: SubagentSnapshot["stage"]): SubagentSnapshot => ({
+const snapshot = (): SubagentSnapshot => ({
   id: "sa-1",
   origin: "model",
   backend: "codex",
@@ -48,7 +46,6 @@ const snapshot = (stage?: SubagentSnapshot["stage"]): SubagentSnapshot => ({
   prompt: "prompt",
   cwd: "/tmp",
   status: "running",
-  ...(stage === undefined ? {} : { stage }),
   createdAt: 1_000,
   meta: { backend: "codex" },
   usage: {},
@@ -69,7 +66,6 @@ async function openPickerForTest(snaps: ReadonlyArray<SubagentSnapshot>) {
   const components: TakeoverComponent[] = [];
   const pending: Array<(value: string | null) => void> = [];
   const sends: string[] = [];
-  const stageSends: StageSend[] = [];
   const bindings = new Set<string>();
   const tui = {
     requestRender: () => {},
@@ -98,9 +94,6 @@ async function openPickerForTest(snaps: ReadonlyArray<SubagentSnapshot>) {
     requestSend: (_id: string, text: string) => {
       sends.push(text);
     },
-    requestStageSend: (id: string, stage: string, text: string) => {
-      stageSends.push({ id, stage, text });
-    },
   } as unknown as SubagentReadModel;
   const context = {
     ui: {
@@ -118,7 +111,7 @@ async function openPickerForTest(snaps: ReadonlyArray<SubagentSnapshot>) {
   const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
   const picker = openSubagentPicker(context, view);
   await flush();
-  return { bindings, components, flush, pending, picker, sends, stageSends };
+  return { bindings, components, flush, pending, picker, sends };
 }
 
 async function openForTest(snap: SubagentSnapshot) {
@@ -126,7 +119,6 @@ async function openForTest(snap: SubagentSnapshot) {
   let closed = false;
   let aborts = 0;
   let sends: string[] = [];
-  let stageSends: StageSend[] = [];
   let renders = 0;
   const tui = {
     requestRender: () => {
@@ -152,15 +144,6 @@ async function openForTest(snap: SubagentSnapshot) {
     requestSend: (_id: string, text: string) => {
       sends.push(text);
     },
-    requestStageSend: (
-      id: string,
-      stage: string,
-      text: string,
-      onError: (message: string) => void,
-    ) => {
-      stageSends.push({ id, stage, text });
-      onError("Authorization: Bearer STAGE_SEND_SECRET\u001b[31m");
-    },
   } as unknown as SubagentReadModel;
   const factoryContext = {
     ui: {
@@ -178,7 +161,7 @@ async function openForTest(snap: SubagentSnapshot) {
       },
     },
   } as unknown as ExtensionCommandContext;
-  await openSubagentTakeover(factoryContext, view, snap.id);
+  await openSubagentTranscript(factoryContext, view, snap.id);
   if (!component) throw new Error("takeover component was not created");
   return {
     component,
@@ -189,9 +172,6 @@ async function openForTest(snap: SubagentSnapshot) {
     get sends() {
       return sends;
     },
-    get stageSends() {
-      return stageSends;
-    },
     get renders() {
       return renders;
     },
@@ -201,9 +181,9 @@ async function openForTest(snap: SubagentSnapshot) {
   };
 }
 
-test("opened stage takeover sends only through its identified input and bounds errors", async () => {
+test("the stage transcript view has no send path and bounds its errors", async () => {
   const harness = await openForTest({
-    ...snapshot("debugger"),
+    ...snapshot(),
     errorText: "Authorization: Bearer STAGE_RUNTIME_SECRET\u001b[31m",
     liveAssistant: {
       thinking: "",
@@ -213,23 +193,26 @@ test("opened stage takeover sends only through its identified input and bounds e
   try {
     harness.bindings.add("clear:app.clear");
     harness.component.handleInput?.("clear");
-    assert.equal(harness.aborts, 0);
+    assert.equal(harness.aborts, 1);
 
     harness.bindings.add("up:tui.editor.cursorUp");
     harness.component.handleInput?.("up");
     assert.equal(harness.renders, 1);
-    assert.deepEqual(harness.stageSends, []);
 
+    // Herdr: no takeover. Typing goes nowhere and no send is ever requested.
     const internals = harness.component as unknown as TakeoverInternals;
-    internals.input.onSubmit?.(" direct answer ");
-    assert.deepEqual(harness.stageSends, [
-      { id: "sa-1", stage: "debugger", text: "direct answer" },
-    ]);
+    assert.equal(
+      internals.input,
+      undefined,
+      "the read-only view must not hold an input component",
+    );
+    harness.component.handleInput?.("direct answer");
     assert.deepEqual(harness.sends, []);
 
     const lines = harness.component.render(40);
     const output = lines.join("\n");
-    assert.match(output, /Send to debugger \(sa-1\)/);
+    assert.match(output, /read-only/);
+    assert.doesNotMatch(output, /Send to /);
     assert.doesNotMatch(
       output,
       /STAGE_SEND|STAGE_RUNTIME|STAGE_LIVE|\u001b\[31m|\u001b\[32m/,
@@ -247,17 +230,13 @@ test("opened stage takeover sends only through its identified input and bounds e
     harness.bindings.add("escape:app.interrupt");
     harness.component.handleInput?.("escape");
     assert.equal(harness.closed, true);
-    internals.input.onSubmit?.("after close");
-    assert.deepEqual(harness.stageSends, [
-      { id: "sa-1", stage: "debugger", text: "direct answer" },
-    ]);
   } finally {
     harness.component.dispose?.();
   }
 });
 
-test("dashboard cannot abort a workflow stage", async () => {
-  const stage = snapshot("debugger");
+test("dashboard can abort a running subagent with x", async () => {
+  const stage = snapshot();
   let component: TakeoverComponent | undefined;
   let aborts = 0;
   const tui = {
@@ -298,14 +277,14 @@ test("dashboard cannot abort a workflow stage", async () => {
   await openSubagentPicker(context, view);
   try {
     component?.handleInput?.("x");
-    assert.equal(aborts, 0);
-    assert.doesNotMatch(component?.render(80).join("\n") ?? "", /x abort/);
+    assert.equal(aborts, 1);
+    assert.match(component?.render(80).join("\n") ?? "", /x abort/);
   } finally {
     component?.dispose?.();
   }
 });
 
-test("helper takeover retains abort and send behavior", async () => {
+test("the helper transcript view keeps abort but has no send", async () => {
   const harness = await openForTest(snapshot());
   try {
     harness.bindings.add("clear:app.clear");
@@ -313,8 +292,9 @@ test("helper takeover retains abort and send behavior", async () => {
     assert.equal(harness.aborts, 1);
 
     const internals = harness.component as unknown as TakeoverInternals;
-    internals.input.onSubmit?.(" follow up ");
-    assert.deepEqual(harness.sends, ["follow up"]);
+    assert.equal(internals.input, undefined);
+    harness.component.handleInput?.("follow up");
+    assert.deepEqual(harness.sends, [], "no takeover: nothing is ever sent");
   } finally {
     harness.component.dispose?.();
   }
@@ -388,7 +368,7 @@ test("dashboard preserves tiny measured context and terminal width with Unicode 
 
 test("stage takeover preserves tiny measured context in its width-bounded header", async () => {
   const harness = await openForTest({
-    ...snapshot("debugger"),
+    ...snapshot(),
     title: "日本語🙂 takeover title",
     usage: { tokens: 1, contextWindow: 200_000 },
   });
@@ -403,18 +383,14 @@ test("stage takeover preserves tiny measured context in its width-bounded header
   }
 });
 
-test("stage takeover keeps generic helper relay blocked", () => {
+test("no send path survives in the transcript view; the tool relay stays blocked", () => {
   const source = readFileSync(
     new URL("./src/ui/takeover.ts", import.meta.url),
     "utf8",
   );
-  assert.match(source, /requestStageSend\(this\.id, snap\.stage, text,/);
-  assert.match(source, /if \(snap\.stage\) \{/);
-  const tools = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-  assert.match(
-    tools,
-    /if \(snap\.stage\)[\s\S]*throw new Error\([\s\S]*"Workflow stages accept messages only through workflow send\."/,
-  );
+  assert.doesNotMatch(source, /requestStageSend\(/);
+  assert.doesNotMatch(source, /requestSend\(/);
+  assert.doesNotMatch(source, /new Input\(/);
 });
 
 test("dashboard selection follows its subagent id and falls back by row", () => {
@@ -502,7 +478,7 @@ test("selection id survives a reorder after the dashboard sorts", () => {
   );
 });
 
-test("picker returns to the dashboard after a takeover resolves", async () => {
+test("picker returns to the dashboard after a transcript view resolves", async () => {
   const snaps = [
     mkSnap("sa-run-1", "running", 1_000),
     mkSnap("sa-done", "done", 2_000),
@@ -517,9 +493,8 @@ test("picker returns to the dashboard after a takeover resolves", async () => {
     harness.components[0].handleInput?.("enter");
     await harness.flush();
     assert.equal(harness.components.length, 2);
-    assert.match(harness.components[1].render(80).join("\n"), /send/);
+    assert.match(harness.components[1].render(80).join("\n"), /read-only/);
     assert.deepEqual(harness.sends, []);
-    assert.deepEqual(harness.stageSends, []);
 
     // Closing the takeover resolves it; the loop re-renders the dashboard.
     harness.bindings.add("escape:app.interrupt");
@@ -548,7 +523,6 @@ test("cancelling the dashboard returns to the session without opening a takeover
     await harness.picker;
     assert.equal(harness.components.length, 1);
     assert.deepEqual(harness.sends, []);
-    assert.deepEqual(harness.stageSends, []);
   } finally {
     harness.components.forEach((component) => component.dispose?.());
   }
@@ -597,7 +571,6 @@ test("dashboard hint names confirm, cancel, and both escape behaviours; rows are
     harness.components[0].handleInput?.("hello world");
     harness.components[0].handleInput?.("a");
     assert.deepEqual(harness.sends, []);
-    assert.deepEqual(harness.stageSends, []);
   } finally {
     harness.components.forEach((component) => component.dispose?.());
   }

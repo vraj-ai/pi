@@ -1,0 +1,10 @@
+{
+  "oh-my-pi": {
+    "commit": "51f03804476c3fd3c15748ae07e4849d1efc883b",
+    "port": "extensions/usage-stats"
+  },
+  "agent-stuff": {
+    "commit": "13bc8f87970bec8830aab0f1c0487d35aa7c0917",
+    "port": "extensions/session-tools"
+  }
+}

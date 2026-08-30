@@ -74,3 +74,30 @@ export const SCRAPE_PARAMETER_DESCRIPTIONS = {
   includeMetadata:
     "Append page metadata to the markdown. Defaults to false; metadata remains available in tool details.",
 };
+
+/** Describes structured extraction from one or more pages. */
+export const EXTRACT_TOOL_DESCRIPTION =
+  "Extract structured JSON from one or more web pages. Give a natural-language prompt describing the fields you want, and optionally a JSON Schema the result must match. Use this instead of scrape when you need specific fields (prices, names, dates, links) rather than the page text - it returns parsed data, not markdown, so it costs far less context.";
+
+/** Adds structured web extraction to the parent model's available-tools prompt. */
+export const EXTRACT_PROMPT_SNIPPET =
+  "Extract structured JSON fields from one or more web pages";
+
+/** Guides the model toward extraction over scrape-and-parse. */
+export const EXTRACT_PROMPT_GUIDELINES = [
+  "Prefer extract over scrape when you want specific fields; scrape returns the whole page and wastes context.",
+  "Pass a JSON Schema whenever the shape matters - it makes the result stable enough to act on.",
+  "Extraction runs per URL; batch related pages into one call rather than looping.",
+];
+
+/** Model-facing schema descriptions for extract. */
+export const EXTRACT_PARAMETER_DESCRIPTIONS = {
+  urls: "Page URLs to extract from (1-10). Each is fetched and extracted independently.",
+  prompt:
+    "What to extract, in plain language. Be specific about the fields and their meaning.",
+  schema:
+    "Optional JSON Schema object the extracted data must conform to. Strongly recommended when the shape matters.",
+  onlyMainContent:
+    "Extract from the main content only, skipping navigation and footers (default true)",
+  timeout: "Per-URL timeout in milliseconds (default 60000)",
+};

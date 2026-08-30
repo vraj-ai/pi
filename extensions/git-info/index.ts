@@ -13,6 +13,11 @@ import {
   loadChangedFiles,
   showChangedFiles,
 } from "./src/changed-files-view.ts";
+import {
+  formatGitContext,
+  shouldInject,
+  type GitSnapshot,
+} from "./src/injection.ts";
 import { runCommand, type CommandRunner } from "./src/process.ts";
 import { makeRefreshCoordinator } from "./src/refresh-coordinator.ts";
 import {
@@ -51,8 +56,12 @@ function parsePullRequestJson(value: string) {
   }
 }
 
+const INJECTION_TIMEOUT_MS = 3_000;
+
 export default function gitInfo(pi: ExtensionAPI) {
   let state = emptyGitInfoState();
+  /** Fingerprint of the last injected git block; undefined = nothing injected yet. */
+  let lastInjected: string | undefined;
   let runtime: GitInfoRuntime | undefined;
   let pollingFiber: Fiber.Fiber<void> | undefined;
   let currentContext: ExtensionContext | undefined;
@@ -214,12 +223,70 @@ export default function gitInfo(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     stopRefreshListener();
+    lastInjected = undefined;
     generation += 1;
     currentContext = undefined;
     pollingFiber = undefined;
     const closing = runtime;
     runtime = undefined;
     await closing?.dispose();
+  });
+
+  /**
+   * Inject a compact git snapshot before the turn, but only when the repository
+   * state changed since the last injection. Reads are best-effort and bounded:
+   * a slow or missing git must never delay or break a turn.
+   */
+  pi.on("before_agent_start", async (_event, ctx) => {
+    const git = (args: string[]) =>
+      pi
+        .exec("git", args, { cwd: ctx.cwd, timeout: INJECTION_TIMEOUT_MS })
+        .then((result) => (result.code === 0 ? result.stdout : ""))
+        .catch(() => "");
+
+    let snapshot: GitSnapshot;
+    try {
+      const inside = await git(["rev-parse", "--is-inside-work-tree"]);
+      if (inside.trim() !== "true") {
+        lastInjected = undefined;
+        return;
+      }
+      const [branch, head, status, log, upstream] = await Promise.all([
+        git(["branch", "--show-current"]),
+        git(["rev-parse", "--short", "HEAD"]),
+        git(["status", "--porcelain=v1", "--untracked-files=all"]),
+        git(["log", "--oneline", "-5"]),
+        git(["status", "--short", "--branch"]),
+      ]);
+      snapshot = {
+        isRepository: true,
+        branch: branch.trim() || undefined,
+        head: head.trim() || undefined,
+        status,
+        log,
+        // The first line of `status --short --branch` is "## <tracking info>".
+        upstream:
+          upstream
+            .split("\n")[0]
+            ?.replace(/^##\s*/, "")
+            .trim() || undefined,
+      };
+    } catch {
+      return;
+    }
+
+    const decision = shouldInject(snapshot, lastInjected);
+    if (!decision.inject) return;
+    const content = formatGitContext(snapshot);
+    if (!content) return;
+    lastInjected = decision.fingerprint;
+    return {
+      message: {
+        customType: "git-context",
+        content,
+        display: false,
+      },
+    };
   });
 
   pi.registerCommand("lg", {

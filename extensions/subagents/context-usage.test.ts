@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildReading } from "../shared/stage-progress.ts";
 import { renderFooter } from "../ui-customization/footer.ts";
 import { contextOccupancyTokens } from "./src/backends/claude.ts";
 import { parseThreadTokenUsage } from "./src/backends/codex.ts";
@@ -188,13 +187,6 @@ test("Codex non-positive or non-finite occupancy stays unknown through stage row
       }),
     );
     assert.equal(usage.tokens, undefined);
-    const reading = buildReading({
-      source: "context",
-      done: usage.tokens,
-      total: usage.contextWindow,
-      at: 10_000,
-    });
-    assert.equal(reading.kind, "indeterminate");
     const lines = renderFooter({
       width: 120,
       theme,

@@ -100,9 +100,6 @@ function fakeView(size: number, sends: string[] = []): SubagentReadModel {
     requestSend: (id, text) => {
       sends.push(`requestSend:${id}:${text}`);
     },
-    requestStageSend: (_id, _stage, text) => {
-      sends.push(`requestStageSend:${text}`);
-    },
     requestAbort: () => {},
     setOnSettled: () => {},
   };
@@ -304,11 +301,13 @@ test("readPickerSettings resolves the kill switch from settings.json", () => {
     const settingsPath = join(dir, "settings.json");
     writeFileSync(
       settingsPath,
-      JSON.stringify({ workflow: { subagentPicker: { downArrow: false } } }),
+      JSON.stringify({
+        "vraj.subagents.picker": { downArrow: false },
+      }),
     );
     assert.equal(resolvePickerEnabled(readPickerSettings(settingsPath)), false);
 
-    writeFileSync(settingsPath, JSON.stringify({ workflow: {} }));
+    writeFileSync(settingsPath, JSON.stringify({}));
     assert.equal(resolvePickerEnabled(readPickerSettings(settingsPath)), true);
 
     writeFileSync(settingsPath, "not json{");

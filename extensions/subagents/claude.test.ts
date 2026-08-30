@@ -14,6 +14,7 @@ const parent: ParentContext = {
 function task(prompt: string): SpawnTask {
   return {
     prompt,
+    readOnly: true,
     title: "live Claude test",
     cwd: process.cwd(),
     model: "haiku",
@@ -24,6 +25,12 @@ function task(prompt: string): SpawnTask {
 
 async function claudeAvailable() {
   return Effect.runPromise(claudeBackend.available);
+}
+
+function isQuotaBlocked(text: string | undefined) {
+  return /monthly spend limit|credit balance|usage limit|rate limit/i.test(
+    text ?? "",
+  );
 }
 
 /** Rejecting deadline so a hung wait still reaches finally() and disposes. */
@@ -59,6 +66,10 @@ test(
       await deadline(runTool(runtime, manager.waitFor([started.id])), 45_000);
 
       const done = manager.view.get(started.id);
+      if (isQuotaBlocked(done?.finalText ?? done?.errorText)) {
+        t.skip("Claude Code is installed but quota-blocked");
+        return;
+      }
       assert.equal(done?.status, "done");
       assert.match(done?.finalText ?? "", /hello claude/i);
       assert.ok(done?.meta.nativeSessionId);
@@ -100,6 +111,14 @@ test(
         Date.now() < streamDeadline
       ) {
         await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const snapshot = manager.view.get(started.id);
+      if (
+        snapshot?.status !== "running" &&
+        isQuotaBlocked(snapshot?.finalText ?? snapshot?.errorText)
+      ) {
+        t.skip("Claude Code is installed but quota-blocked");
+        return;
       }
       assert.equal(manager.view.get(started.id)?.status, "running");
       assert.ok(manager.view.get(started.id)?.liveAssistant?.text);

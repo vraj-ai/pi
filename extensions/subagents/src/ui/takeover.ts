@@ -2,7 +2,7 @@
  * Takeover UI for subagents (ported from v1, rendering from the synchronous
  * SubagentReadModel instead of live pi sessions):
  * - SubagentDashboard: full popup (overlay) listing all subagents.
- * - TakeoverView: a read-only workflow-stage view and an interactive helper view.
+ * - TakeoverView: a read-only transcript viewer (scroll and abort, no send).
  */
 
 import type {
@@ -11,7 +11,7 @@ import type {
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
-import { Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { redactSecrets } from "../../../summaries/src/transcript.ts";
 import {
   formatElapsed,
@@ -139,7 +139,13 @@ export interface TakeoverOptions {
   readonly badge?: string;
 }
 
-export async function openSubagentTakeover(
+/**
+ * Herdr has no takeover: the fleet is read-only, so this view is a transcript
+ * viewer. There is no input line and no send path - abort and scroll are the
+ * only interactions. The model can still continue a subagent with
+ * `subagent_send`; the human cannot seize the child's turn.
+ */
+export async function openSubagentTranscript(
   ctx: ExtensionCommandContext,
   view: SubagentReadModel,
   id: string,
@@ -180,7 +186,7 @@ export async function openSubagentPicker(
     if (!picked) return;
     if (!view.get(picked)) continue;
 
-    await openSubagentTakeover(ctx, view, picked);
+    await openSubagentTranscript(ctx, view, picked);
     // After leaving the takeover view, fall back to the dashboard.
   }
 }
@@ -314,7 +320,7 @@ class SubagentDashboard implements Component {
     }
     if (data === "x") {
       const snap = subs[this.selection.index];
-      if (snap && snap.status === "running" && snap.stage === undefined) {
+      if (snap && snap.status === "running") {
         this.view.requestAbort(snap.id);
       }
       return;
@@ -395,10 +401,7 @@ class SubagentDashboard implements Component {
     // Hints: confirm takes over, cancel returns to the session, and the
     // same cancel key inside a takeover returns here (PI-35 round-trip).
     const selected = subs[this.selection.index];
-    const abortHint =
-      selected?.status === "running" && selected.stage === undefined
-        ? " · x abort"
-        : "";
+    const abortHint = selected?.status === "running" ? " · x abort" : "";
     lines.push(
       truncateToWidth(
         theme.fg(
@@ -490,8 +493,6 @@ class TakeoverView implements Component, Focusable {
   private done: (value: null) => void;
   private options?: TakeoverOptions;
 
-  private input = new Input();
-  private sendError?: string;
   /** Scroll offset in lines from the bottom of the transcript. 0 = pinned to bottom. */
   private scrollOffset = 0;
   private unsubscribe: () => void;
@@ -505,7 +506,6 @@ class TakeoverView implements Component, Focusable {
   }
   set focused(value: boolean) {
     this._focused = value;
-    this.input.focused = value;
   }
 
   constructor(
@@ -527,28 +527,6 @@ class TakeoverView implements Component, Focusable {
     this.unsubscribe = view.subscribeTo(id, () => this.scheduleRender());
     // Elapsed time in the header ticks along at 1Hz.
     this.ticker = setInterval(() => this.tui.requestRender(), 1000);
-    this.input.onSubmit = (value: string) => {
-      if (this.closed) return;
-      const text = value.trim();
-      const snap = this.snap();
-      if (!text || !snap) return;
-      this.input.setValue("");
-      this.sendError = undefined;
-      if (snap.stage) {
-        this.view.requestStageSend(this.id, snap.stage, text, (message) => {
-          if (this.closed) return;
-          this.sendError = safeDisplayText(message).slice(
-            0,
-            TAKEOVER_ERROR_MAX_LENGTH,
-          );
-          this.tui.requestRender();
-        });
-      } else {
-        this.view.requestSend(this.id, text);
-      }
-      this.scrollOffset = 0;
-      this.tui.requestRender();
-    };
   }
 
   private snap(): SubagentSnapshot | undefined {
@@ -586,10 +564,8 @@ class TakeoverView implements Component, Focusable {
   handleInput(data: string): void {
     if (this.closed) return;
     const snap = this.snap();
-    const isStageTakeover = snap?.stage !== undefined;
     if (this.keybindings.matches(data, "app.clear")) {
-      if (!isStageTakeover && snap?.status === "running")
-        this.view.requestAbort(this.id);
+      if (snap?.status === "running") this.view.requestAbort(this.id);
       return;
     }
     if (
@@ -625,8 +601,8 @@ class TakeoverView implements Component, Focusable {
       this.tui.requestRender();
       return;
     }
-    this.input.handleInput(data);
-    this.tui.requestRender();
+    // Read-only view: every other key is ignored rather than typed into a
+    // send box that no longer exists.
   }
 
   private viewportHeight(): number {
@@ -669,8 +645,7 @@ class TakeoverView implements Component, Focusable {
     // inside the viewport so streaming/scrolling never changes overlay height.
     const transcript = buildTranscriptLines(snap, width, theme);
     const viewport = this.viewportHeight();
-    const errorRows =
-      Number(Boolean(snap.errorText)) + Number(Boolean(this.sendError));
+    const errorRows = Number(Boolean(snap.errorText));
     const scrollRows = this.scrollOffset > 0 ? 1 : 0;
     const transcriptCapacity = Math.max(1, viewport - errorRows - scrollRows);
     const maxOffset = Math.max(0, transcript.length - transcriptCapacity);
@@ -682,15 +657,6 @@ class TakeoverView implements Component, Focusable {
         truncateToWidth(theme.fg("error", `error: ${snap.errorText}`), width),
       );
     }
-    if (this.sendError) {
-      body.push(
-        truncateToWidth(
-          theme.fg("error", `send failed: ${this.sendError}`),
-          width,
-        ),
-      );
-    }
-
     const capacity = Math.max(
       1,
       viewport - body.length - (this.scrollOffset > 0 ? 1 : 0),
@@ -713,15 +679,10 @@ class TakeoverView implements Component, Focusable {
 
     lines.push(border);
     lines.push(
-      ...this.input.render(width).map((line) => truncateToWidth(line, width)),
-    );
-    lines.push(
       truncateToWidth(
         theme.fg(
           "dim",
-          snap.stage
-            ? `Send to ${snap.stage} (${snap.id}) · ${configuredKeys(this.keybindings, "tui.input.submit")} send · ${configuredKeys(this.keybindings, "app.interrupt")} cancel · ${configuredKeys(this.keybindings, "tui.editor.cursorUp")}/${configuredKeys(this.keybindings, "tui.editor.cursorDown")} scroll · ${configuredKeys(this.keybindings, "tui.editor.pageUp")}/${configuredKeys(this.keybindings, "tui.editor.pageDown")} page`
-            : `${configuredKeys(this.keybindings, "tui.input.submit")} send · ${configuredKeys(this.keybindings, "app.interrupt")} back${snap.status === "running" ? ` · ${configuredKeys(this.keybindings, "app.clear")} abort run` : ""} · ${configuredKeys(this.keybindings, "tui.editor.cursorUp")}/${configuredKeys(this.keybindings, "tui.editor.cursorDown")} scroll · ${configuredKeys(this.keybindings, "tui.editor.pageUp")}/${configuredKeys(this.keybindings, "tui.editor.pageDown")} page`,
+          `read-only · ${configuredKeys(this.keybindings, "app.interrupt")} back${snap.status === "running" ? ` · ${configuredKeys(this.keybindings, "app.clear")} abort run` : ""} · ${configuredKeys(this.keybindings, "tui.editor.cursorUp")}/${configuredKeys(this.keybindings, "tui.editor.cursorDown")} scroll · ${configuredKeys(this.keybindings, "tui.editor.pageUp")}/${configuredKeys(this.keybindings, "tui.editor.pageDown")} page`,
         ),
         width,
       ),
@@ -730,7 +691,5 @@ class TakeoverView implements Component, Focusable {
     return lines;
   }
 
-  invalidate(): void {
-    this.input.invalidate();
-  }
+  invalidate(): void {}
 }

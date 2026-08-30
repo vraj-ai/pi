@@ -34,6 +34,29 @@ import type {
 } from "../domain.ts";
 import { SendError, SpawnError } from "../domain.ts";
 
+/** Claude Code tools that only observe. Used as the read-only allowlist. */
+const CLAUDE_READ_TOOL_NAMES = [
+  "Read",
+  "Glob",
+  "Grep",
+  "LS",
+  "NotebookRead",
+  "WebFetch",
+  "WebSearch",
+  "TodoWrite",
+] as const;
+
+/** Claude Code tools that can mutate the workspace or run commands. */
+const CLAUDE_WRITE_TOOL_NAMES = [
+  "Bash",
+  "BashOutput",
+  "KillShell",
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
+] as const;
+
 const CLAUDE_CONTEXT_WINDOW = 200_000;
 const INTERRUPT_TIMEOUT_MS = 2_000;
 const PREVIEW_MAX_LENGTH = 4_096;
@@ -350,7 +373,17 @@ const makeClaudeSession = (
             allowDangerouslySkipPermissions: true,
             // Keep child orchestration inside this extension's global manager
             // and concurrency cap rather than Claude Code's native subagents.
-            disallowedTools: ["Agent", "Task"],
+            disallowedTools: [
+              "Agent",
+              "Task",
+              // Herdr read-only enforcement: deny every mutating tool by name
+              // as well as allowlisting below, so a new SDK tool defaults to
+              // denied rather than to allowed.
+              ...(task.readOnly ? CLAUDE_WRITE_TOOL_NAMES : []),
+            ],
+            ...(task.readOnly
+              ? { allowedTools: [...CLAUDE_READ_TOOL_NAMES] }
+              : {}),
             // For cwds pi marked untrusted, restrict to user-level settings so
             // an untrusted project's config cannot reconfigure the child.
             ...(task.parent.projectTrusted

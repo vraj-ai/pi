@@ -9,12 +9,27 @@
 import { Cause, Exit, Layer, ManagedRuntime, type Effect } from "effect";
 import { BackendRegistry, type SubagentBackend } from "./backend.ts";
 import { claudeBackend } from "./backends/claude.ts";
+import { makeCliBackend } from "./backends/cli.ts";
 import { codexBackend } from "./backends/codex.ts";
 import { piBackend } from "./backends/pi.ts";
 import type { BackendName } from "./domain.ts";
 
 const BackendRegistryLive = Layer.sync(BackendRegistry, () => {
-  const backends: SubagentBackend[] = [piBackend, claudeBackend, codexBackend];
+  // agy/omp/grok are optional: `makeCliBackend` only reads settings and never
+  // touches the binary here, so a missing CLI shows up as `available: false`
+  // at spawn time rather than breaking layer construction.
+  const backends: SubagentBackend[] = [
+    piBackend,
+    claudeBackend,
+    codexBackend,
+    ...["agy", "omp", "grok"].flatMap((slug) => {
+      try {
+        return [makeCliBackend(slug)];
+      } catch {
+        return [];
+      }
+    }),
+  ];
   return new Map<BackendName, SubagentBackend>(
     backends.map((backend) => [backend.name, backend]),
   );

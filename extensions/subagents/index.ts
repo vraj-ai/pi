@@ -91,13 +91,13 @@ import {
   runTool,
   type SubagentRuntime,
 } from "./src/runtime.ts";
-import { openSubagentPicker, openSubagentTakeover } from "./src/ui/takeover.ts";
 import {
-  SUBAGENT_BRIDGE_CHANNEL,
+  openSubagentPicker,
+  openSubagentTranscript,
+} from "./src/ui/takeover.ts";
+import {
   SUBAGENT_STATE_CHANNEL,
-  isWorkflowBridgeRequest,
-  type WorkflowBridgeRequest,
-  type WorkflowSubagentSummary,
+  type SubagentSummary,
 } from "../shared/workflow-state.ts";
 
 const SUBAGENT_OUTPUT_MAX_BYTES = 24 * 1024;
@@ -124,15 +124,12 @@ function describeSubagent(snap: SubagentSnapshot) {
   return `${snap.id} [${snap.status}] "${snap.title}" (${details.join(", ")})`;
 }
 
-export function summarizeSubagent(
-  snap: SubagentSnapshot,
-): WorkflowSubagentSummary {
+export function summarizeSubagent(snap: SubagentSnapshot): SubagentSummary {
   return {
     id: snap.id,
     title: snap.title,
     status: snap.status,
     backend: snap.backend,
-    ...(snap.stage === undefined ? {} : { stage: snap.stage }),
     startedAt: snap.createdAt,
     modelLabel: snap.meta.modelLabel,
     contextTokens: snap.usage.tokens,
@@ -161,7 +158,7 @@ function truncatedOutput(
 
 /** Live running-subagent count, kept by updateStatus for the sync DOWN trigger. */
 let runningCount = 0;
-/** INV-20 kill switch (`workflow.subagentPicker.downArrow`), resolved at install. */
+/** Picker DOWN trigger; resolved at editor install. */
 let pickerEnabled = true;
 
 export interface SubagentPickerEditorOptions {
@@ -466,70 +463,6 @@ export default function (pi: ExtensionAPI) {
     if (sessionContext?.isIdle()) flushResults();
   };
 
-  const stopWorkflowBridge = pi.events.on(SUBAGENT_BRIDGE_CHANNEL, (value) => {
-    if (!isWorkflowBridgeRequest(value)) return;
-    void (async () => {
-      try {
-        const manager = await getManager();
-        if (value.kind === "list") {
-          value.resolve({
-            ok: true,
-            summaries: manager.view
-              .list()
-              .filter(isModelVisible)
-              .map(summarize),
-          });
-          return;
-        }
-        if (value.kind === "send") {
-          const snap = manager.view.get(value.id);
-          if (!snap || !isModelVisible(snap)) {
-            value.resolve({
-              ok: false,
-              error: `Unknown subagent id: ${value.id}`,
-            });
-            return;
-          }
-          manager.view.requestSend(value.id, value.text);
-          value.resolve({ ok: true, id: value.id, title: snap.title });
-          return;
-        }
-
-        const cwd = path.resolve(value.cwd);
-        if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
-          value.resolve({
-            ok: false,
-            error: `working_dir is not a directory: ${cwd}`,
-          });
-          return;
-        }
-        const snap = await runTool(
-          getRuntime(),
-          manager.spawn(value.harness, {
-            prompt: value.prompt,
-            title: value.title.trim().slice(0, 160) || "workflow stage",
-            cwd,
-            stage: value.stage,
-            model: value.model,
-            reasoningEffort: value.reasoningEffort,
-            parent: value.parent,
-          }),
-        );
-        publishSubagents(manager);
-        value.resolve({
-          ok: true,
-          id: snap.id,
-          title: snap.title,
-        });
-      } catch (error) {
-        value.resolve({
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
-  });
-
   /** Best-effort picker open shared by both triggers; never crashes the TUI. */
   const openPicker = async (ctx: ExtensionContext): Promise<void> => {
     try {
@@ -568,7 +501,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_settled", flushResults);
 
   pi.on("session_shutdown", async () => {
-    stopWorkflowBridge();
     sessionContext = undefined;
     resultDelivery.clear();
     unsubStatus?.();
@@ -633,6 +565,8 @@ export default function (pi: ExtensionAPI) {
           prompt: params.prompt,
           title,
           cwd,
+          // Herdr invariant: the whole fleet is read-only.
+          readOnly: true,
           model: params.model,
           reasoningEffort: params.reasoning_effort,
           parent: {
@@ -680,13 +614,10 @@ export default function (pi: ExtensionAPI) {
     name: "subagent_send",
     label: "Send to Subagent",
     description:
-      "Send a continuation message to a running or settled non-workflow subagent.",
+      "Send a continuation message to a running or settled subagent.",
     promptSnippet:
       "Resume a paused subagent with a user answer or bounded helper result",
-    promptGuidelines: [
-      "Use workflow send for a workflow stage; use subagent_send only for a non-workflow subagent.",
-      "Keep the message self-contained and include the original stage envelope context.",
-    ],
+    promptGuidelines: ["Keep the message self-contained."],
     parameters: Type.Object({
       id: Type.String({ description: "Subagent id" }),
       text: Type.String({ description: "Message to send" }),
@@ -697,10 +628,6 @@ export default function (pi: ExtensionAPI) {
       if (!snap || !isModelVisible(snap)) {
         throw new Error(`Unknown subagent id: ${params.id}`);
       }
-      if (snap.stage)
-        throw new Error(
-          "Workflow stages accept messages only through workflow send.",
-        );
       manager.view.requestSend(params.id, params.text);
       return {
         content: [
@@ -1050,6 +977,7 @@ export default function (pi: ExtensionAPI) {
           prompt,
           title: deriveBtwTitle(prompt),
           cwd: ctx.cwd,
+          readOnly: true,
           parent: {
             parentCwd: ctx.cwd,
             projectTrusted: ctx.isProjectTrusted(),
@@ -1069,7 +997,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    await openSubagentTakeover(ctx, manager.view, snap.id, {
+    await openSubagentTranscript(ctx, manager.view, snap.id, {
       badge: "by the way",
     });
   };
@@ -1081,12 +1009,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("subagents", {
-    description: "List, inspect, and take over subagents",
+    description: "List and inspect subagents (read-only; no takeover)",
     handler: async (_args, ctx) => {
       if (ctx.mode !== "tui") {
         if (ctx.hasUI)
           ctx.ui.notify(
-            "Subagent takeover is only available in the TUI",
+            "The subagent viewer is only available in the TUI",
             "error",
           );
         return;

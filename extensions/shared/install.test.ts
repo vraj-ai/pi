@@ -112,10 +112,11 @@ test("installer is idempotent and its forced symlink failure copies resources", 
     const once = readFileSync(join(agentDir, "settings.json"), "utf8");
     runInstaller(["--agent-dir", agentDir]);
     assert.equal(readFileSync(join(agentDir, "settings.json"), "utf8"), once);
-    assert.deepEqual(JSON.parse(once).packages, [
-      "npm:user-package",
-      "git:github.com/DietrichGebert/ponytail",
-    ]);
+    // The installer no longer declares a Pi package of its own: the local
+    // skills repository owns that family, and declaring it in both places
+    // installs it twice. The user's own packages are untouched.
+    assert.deepEqual(JSON.parse(once).packages, ["npm:user-package"]);
+    assert.equal(JSON.parse(once).preserved, true);
 
     const output = runInstaller(["--force-copy", "--agent-dir", fallbackDir]);
     assert.match(output, /Copied extensions/);
@@ -128,7 +129,7 @@ test("installer is idempotent and its forced symlink failure copies resources", 
   }
 });
 
-test("PI-39: installer drops workflow.mode, keeps other workflow settings, idempotently", () => {
+test("installer drops the retired workflow settings object", () => {
   const temporary = join(
     tmpdir(),
     `pi-agent-migrate-${process.pid}-${Date.now()}`,
@@ -152,12 +153,9 @@ test("PI-39: installer drops workflow.mode, keeps other workflow settings, idemp
     runInstaller(["--agent-dir", agentDir]);
     const once = readFileSync(join(agentDir, "settings.json"), "utf8");
     const settings = JSON.parse(once);
-    assert.equal("mode" in settings.workflow, false);
-    assert.equal(settings.workflow.trackerPollMs, 10_000);
-    assert.deepEqual(settings.workflow.routines, [{ name: "standup" }]);
+    assert.equal(Object.hasOwn(settings, "workflow"), false);
     assert.equal(settings.preserved, true);
 
-    // Idempotent: a second run over already-migrated settings changes nothing.
     runInstaller(["--agent-dir", agentDir]);
     assert.equal(readFileSync(join(agentDir, "settings.json"), "utf8"), once);
   } finally {

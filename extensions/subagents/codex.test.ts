@@ -14,6 +14,7 @@ const parent: ParentContext = {
 function task(prompt: string): SpawnTask {
   return {
     prompt,
+    readOnly: true,
     title: "live Codex test",
     cwd: process.cwd(),
     parent,

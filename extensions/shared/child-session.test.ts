@@ -32,7 +32,7 @@ async function withTempDir(run: (directory: string) => Promise<void>) {
   }
 }
 
-test("child denylist keeps extension and workflow structured tools available", async () => {
+test("child denylist keeps extension structured tools available", async () => {
   await withTempDir(async (directory) => {
     let starts = 0;
     let shutdowns = 0;
@@ -104,7 +104,6 @@ test("child denylist keeps extension and workflow structured tools available", a
         "subagent_cancel",
         "subagent_check",
         "subagent_list",
-        "workflow",
         "ask_user",
       ],
     );

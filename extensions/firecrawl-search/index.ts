@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Cause, Data, Effect, Exit } from "effect";
 import { Firecrawl, type CrawlJob, type CrawlOptions } from "firecrawl";
+import { optionalTools } from "../shared/optional-tools.ts";
 import { Type } from "typebox";
 import {
   CRAWL_PARAMETER_DESCRIPTIONS,
@@ -28,6 +29,10 @@ import {
   SEARCH_PROMPT_GUIDELINES,
   SEARCH_PROMPT_SNIPPET,
   SEARCH_TOOL_DESCRIPTION,
+  EXTRACT_PARAMETER_DESCRIPTIONS,
+  EXTRACT_PROMPT_GUIDELINES,
+  EXTRACT_PROMPT_SNIPPET,
+  EXTRACT_TOOL_DESCRIPTION,
 } from "./prompt.ts";
 
 function readEnvValue(name: string) {
@@ -138,20 +143,47 @@ export type CrawlClient = Pick<
   "startCrawl" | "getCrawlStatus" | "cancelCrawl"
 >;
 
-function pollCrawl(
+const CRAWL_POLL_INTERVAL_MS = 2_000;
+/**
+ * Hard cap on status polls, independent of the caller's timeout.
+ *
+ * The outer `Effect.timeout` bounds a normal slow crawl, but a server that
+ * keeps answering "scraping" forever while the timeout is disabled or very
+ * large would otherwise poll indefinitely. 900 polls at 2s is 30 minutes,
+ * comfortably past the tool's 10-minute maximum timeout.
+ */
+export const CRAWL_MAX_POLLS = 900;
+
+export interface PollCrawlLimits {
+  readonly maxPolls?: number;
+  readonly intervalMs?: number;
+}
+
+export function pollCrawl(
   client: CrawlClient,
   jobId: string,
+  attempt = 0,
+  limits: PollCrawlLimits = {},
 ): Effect.Effect<CrawlJob, FirecrawlError> {
+  const maxPolls = limits.maxPolls ?? CRAWL_MAX_POLLS;
+  const intervalMs = limits.intervalMs ?? CRAWL_POLL_INTERVAL_MS;
   return firecrawlRequest(() => client.getCrawlStatus(jobId)).pipe(
-    Effect.flatMap((job) =>
-      job.status === "scraping"
-        ? Effect.sleep("2 seconds").pipe(
-            Effect.flatMap(() =>
-              Effect.suspend(() => pollCrawl(client, jobId)),
-            ),
-          )
-        : Effect.succeed(job),
-    ),
+    Effect.flatMap((job) => {
+      if (job.status !== "scraping") return Effect.succeed(job);
+      if (attempt + 1 >= maxPolls) {
+        return Effect.fail(
+          new FirecrawlError({
+            message: `Crawl ${jobId} still running after ${maxPolls} status polls; giving up so the job cannot poll forever.`,
+            cause: undefined,
+          }),
+        );
+      }
+      return Effect.sleep(`${intervalMs} millis`).pipe(
+        Effect.flatMap(() =>
+          Effect.suspend(() => pollCrawl(client, jobId, attempt + 1, limits)),
+        ),
+      );
+    }),
   );
 }
 
@@ -231,7 +263,102 @@ async function runFirecrawl<T>(
   throw operationError(operation, Cause.squash(exit.cause));
 }
 
+export interface ExtractParams {
+  readonly urls: readonly string[];
+  readonly prompt: string;
+  readonly schema?: Record<string, unknown>;
+  readonly onlyMainContent?: boolean;
+  readonly timeout?: number;
+}
+
+export interface ExtractedPage {
+  readonly url: string;
+  readonly ok: boolean;
+  readonly data?: unknown;
+  readonly error?: string;
+}
+
+/**
+ * Extract each URL independently and report per-URL success. One unreachable
+ * page must not discard the data already extracted from the others, so failures
+ * are recorded in the result rather than failing the whole call.
+ */
+export function extractEffect(
+  client: Pick<Firecrawl, "scrape">,
+  params: ExtractParams,
+) {
+  return Effect.forEach(
+    params.urls,
+    (url) =>
+      firecrawlRequest(() =>
+        client.scrape(url, {
+          formats: [
+            {
+              type: "json" as const,
+              prompt: params.prompt,
+              ...(params.schema ? { schema: params.schema } : {}),
+            },
+          ],
+          onlyMainContent: params.onlyMainContent ?? true,
+          timeout: params.timeout ?? 60_000,
+        }),
+      ).pipe(
+        Effect.map((document): ExtractedPage => ({
+          url,
+          ok: true,
+          data: (document as { json?: unknown }).json,
+        })),
+        Effect.catch((error: unknown) =>
+          Effect.succeed<ExtractedPage>({
+            url,
+            ok: false,
+            error: errorMessage(error),
+          }),
+        ),
+      ),
+    { concurrency: 3 },
+  ).pipe(
+    Effect.flatMap((pages: readonly ExtractedPage[]) => {
+      if (pages.every((page) => !page.ok)) {
+        // Every page failed: this is a real failure, not a partial result.
+        return Effect.fail(
+          new FirecrawlError({
+            message: pages
+              .map((page) => `${page.url}: ${page.error ?? "unknown error"}`)
+              .join("; "),
+            cause: undefined,
+          }),
+        );
+      }
+      return Effect.succeed({ details: pages, output: pages });
+    }),
+  );
+}
+
 export default function firecrawlTools(pi: ExtensionAPI) {
+  // `search` and `scrape` are the approved always-available simple Firecrawl
+  // surface: they answer "look this up" and "read this page", which is what
+  // the web is usually needed for, and they stay on unconditionally.
+  //
+  // `crawl` and `extract` are the heavy ones - a whole site, or a schema-driven
+  // multi-page extraction. They are worth real context only when someone is
+  // actually doing that, so they default off and are switched on from
+  // `/features`. Both also need FIRECRAWL_API_KEY, which many sessions lack.
+  optionalTools.register({
+    name: "crawl",
+    summary: "Crawl a whole site or section",
+    leanDefault: "off",
+    rationale:
+      "search and scrape cover ordinary web use; enable this for a bulk crawl.",
+  });
+  optionalTools.register({
+    name: "extract",
+    summary: "Extract structured JSON from pages against a schema",
+    leanDefault: "off",
+    rationale:
+      "scrape returns page text already; enable this when you need typed fields.",
+  });
+
   pi.registerTool({
     name: "search",
     label: "Search Web",
@@ -428,6 +555,54 @@ export default function firecrawlTools(pi: ExtensionAPI) {
               }),
             ),
           ),
+      ),
+  });
+
+  pi.registerTool({
+    name: "extract",
+    label: "Extract Structured Data",
+    description: EXTRACT_TOOL_DESCRIPTION,
+    promptSnippet: EXTRACT_PROMPT_SNIPPET,
+    promptGuidelines: EXTRACT_PROMPT_GUIDELINES,
+    parameters: Type.Object({
+      urls: Type.Array(Type.String(), {
+        description: EXTRACT_PARAMETER_DESCRIPTIONS.urls,
+        minItems: 1,
+        maxItems: 10,
+      }),
+      prompt: Type.String({
+        description: EXTRACT_PARAMETER_DESCRIPTIONS.prompt,
+      }),
+      schema: Type.Optional(
+        Type.Record(Type.String(), Type.Unknown(), {
+          description: EXTRACT_PARAMETER_DESCRIPTIONS.schema,
+        }),
+      ),
+      onlyMainContent: Type.Optional(
+        Type.Boolean({
+          description: EXTRACT_PARAMETER_DESCRIPTIONS.onlyMainContent,
+        }),
+      ),
+      timeout: Type.Optional(
+        Type.Number({
+          description: EXTRACT_PARAMETER_DESCRIPTIONS.timeout,
+          minimum: 1_000,
+          maximum: 180_000,
+        }),
+      ),
+    }),
+    execute: (_toolCallId, params, signal, onUpdate) =>
+      runFirecrawl(
+        "extract",
+        `Extracting structured data from ${params.urls.length} page(s)`,
+        (params.timeout ?? 60_000) * params.urls.length + 10_000,
+        signal,
+        onUpdate,
+        (client) =>
+          // The dedicated /extract endpoint is in maintenance mode upstream;
+          // the supported path is a scrape with a `json` format, which also
+          // keeps each URL independently recoverable when one page fails.
+          extractEffect(client, params),
       ),
   });
 }

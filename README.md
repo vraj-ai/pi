@@ -1,88 +1,46 @@
 # Vraj Pi
 
 Personal configuration for **Pi**, the terminal agent host this repo installs into
-(`~/.pi/agent`). Pi runs **direct-only**: every request is handled by the normal agent
-path, with manual subagents, routines, and a truthful todo/status surface below the
-prompt. Nothing is classified or routed automatically.
+(`~/.pi/agent`). Every request is handled on the normal agent path. Subagents are
+manual. The UI is a compact `π` header, a technical footer, and a below-editor
+list of active subagents.
 
 ## What this repo is
 
 Everything here gets linked (or copied) into `~/.pi/agent` by `./install.sh`:
 
-- `SYSTEM.md` — coordinator policy: direct-only operation, manual stage sessions, approved model map, invariants.
+- `SYSTEM.md` — coordinator policy: direct handling, terse output, subagent rules.
 - `AGENTS.md` — agent rules for this repo: check/format/lint, type safety, test economy.
-- `extensions/workflow` — the off-render tracker poll that publishes todo snapshots, `/routine` commands, and the routines scheduler. There is no automatic routing, stage launch, or relay.
-- `extensions/ui-customization` — the belowEditor status surface (mode/route/stage rows, issue rows, routines section), compact `π + project` header, technical footer.
-- `extensions/subagents` — the multi-harness engine plus the workflow bridge and safe `subagent_send` tool.
+- `extensions/ui-customization` — compact `π + project` header, technical footer, active-subagent status.
+- `extensions/subagents` — **Herdr**: the read-only multi-harness subagent fleet.
+- `extensions/skills-manager` — `/skills` per-scope skill toggles and `/context-audit`.
+- `extensions/usage-stats` — **PI Usage Statistics**: local cost/token/tool/limit index.
+- `extensions/output-compress` — compresses noisy tool output, with `read_raw_output` recovery.
+- `extensions/session-tools` — `/safety`, `/no-sleep`, `/features`, `/continue`.
+- `extensions/files` — `/files` working-tree browser.
+- `extensions/copy-all` — `/copy-all`, `/copy-last`, `/copy-code`, `/export`, all redacted.
+- `extensions/firecrawl-search` — `search`, `scrape`, `crawl`, `extract`.
+- `extensions/background-terminals` — `/ps` and background terminal tools.
+- `extensions/ask-user` — mid-turn multiple-choice questions.
+- `extensions/summaries` — session summarisation.
+- `extensions/file-search` — `fd` / `rg` tools.
+- `extensions/git-info`, `extensions/model-info` — git context and footer telemetry.
 - `skills/` — local skill packages (background-terminals, subagents, terse-output).
-- `themes/vraj-ink.json` — OLED-black cyan/violet theme with semantic stage colors.
+- `themes/cobalt-ink.json` — the default deep-cobalt dark theme; `themes/vraj-ink.json` is still shipped.
 - `keybindings.json` — personal keybinding overrides.
 - `SETUP.md` — install, backup, and rollback details.
-- `tickets.md` — local mirror of the GitHub Projects board: issue map, statuses, delivery records.
-- `docs/` — specs and stage handoffs (every stage boundary is a file-backed handoff here).
+- `PROVENANCE.md` — vendored third-party code, what was changed, and how to re-check it.
 
-Runtime state stays outside git: auth, sessions, trust, live settings, downloaded packages, environment files, and workflow checkpoints.
+Runtime state stays outside git: auth, sessions, trust, live settings, downloaded packages, and environment files.
 
-## Repository layout
+## Token savings
 
-```
-extensions/<name>/index.ts     # extension entry point (registered when Pi loads)
-extensions/<name>/*.ts         # pure modules (renderers, schedulers, settings)
-extensions/<name>/*.test.ts    # node:test suites, run with --experimental-strip-types
-docs/2026-08-05-*.md          # specs + handoffs per effort/ticket
-tickets.md                    # board mirror; the tracker is the authority, this is the local copy
-```
+| Lever                                                                      | What it actually does                                                                                                                                             |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Caveman-style terse output** — `skills/terse-output/SKILL.md` + Ponytail | Routine replies drop filler while keeping technical accuracy; security warnings, irreversible action confirmations, and multi-step sequences are never compressed |
+| **Measured-only telemetry**                                                | Context use is a real occupancy fraction; everything else is elapsed time, turn count, or unknown                                                                 |
 
-## How work flows
-
-Work lives as GitHub issues on a Project board with a strict status pipeline:
-`Planned → Agent Ready → Coding → Debugger Ready → Debugging → Review Ready → Reviewing → Done`.
-Each status is a handoff boundary; nothing skips a stage and only the independent
-reviewer may set `Done`.
-
-1. **Planner** grills the idea, locks decisions and invariants, writes a spec in `docs/`,
-   and cuts dependency-ordered tickets (issues + board items).
-2. **Coder** picks the next unblocked ticket, builds it test-first against the ticket's
-   exact Verification-command, self-checks, and hands off.
-3. **Debugger** attacks what the coder built — weird inputs, failure modes, boundary
-   violations — fixes real defects test-first, and re-runs the gate.
-4. **Reviewer** (blind: never reads maker rationale) judges the diff against the ticket
-   and invariants, and routes: pass → `Done`, fail → back with falsifiable findings.
-
-Every stage boundary leaves a bounded handoff in `docs/handoffs/` and advances the
-board; each handoff is a claim, never proof — the next stage re-runs the gate itself.
-
-## Token savings (the point of the shebang)
-
-This repo is deliberately built to burn as few tokens as possible. Three levers are
-shipped and enforced; nothing here is a vendor claim:
-
-| Lever | What it actually does | Effect |
-| --- | --- | --- |
-| **Caveman-style terse output** — `skills/terse-output/SKILL.md` + Ponytail | Routine replies drop filler, articles, and pleasantries while keeping full technical accuracy; security warnings, irreversible-action confirmations, and multi-step sequences are never compressed | ~75% fewer tokens on conversation overhead (policy claim, matches the Caveman skill contract) |
-| **Prompt-cache-stable assembly** — `extensions/workflow` | The system prompt is split into a byte-identical stable prefix and a volatile route suffix, so provider prompt caches keep hitting across turns instead of re-reading the world every request | Cheaper + faster repeated calls; cache-hit pricing instead of full-prompt pricing |
-| **Measured-only telemetry** — INV-1 | No fabricated percentages. Context use comes from exactly three in-process denominators; everything else renders elapsed time + turn count + no number | Honest UI, no token budget wasted on invented metrics |
-
-**What was evaluated and deliberately NOT adopted:** a compressing proxy (RTK/Caveman
-compression, Headroom) with vendor claims of 15–95% savings. Those claims were not
-independently reproduced; the verdict is `needs a further spike` and Pi never routes
-traffic through an unmeasured proxy. Adoption requires a new planner run, new
-invariants, and explicit approval — see `docs/2026-08-04-proxy-evaluation.md`.
-
-**Trust boundary:** credentials, API keys, tokens, and provider URLs never reach the
-footer, the status surface, handoffs, or third parties (INV-2) — redaction is defense in depth,
-not permission to be careless.
-
-## Extending Pi
-
-- **Commands** (`/routine`, …): `extensions/workflow/index.ts` — register with `registerCommand`.
-- **Status surface**: `extensions/ui-customization/status-widget.ts` (pure renderer) + `index.ts` (wiring).
-- **Scheduled prompts**: add a `workflow.routines` entry in `settings.example.json` (see Routines below).
-- **Skills**: `skills/<name>/SKILL.md` — the loader reads these when a task matches.
-- **Theme/keybindings**: `themes/vraj-ink.json`, `keybindings.json`.
-
-Run `npm run check` (typecheck), `npm run format:check`, and the ticket's exact
-Verification-command before finishing any change (see Checks below).
+Credentials, API keys, tokens, and provider URLs never reach the footer, the status surface, or third parties.
 
 ## Install
 
@@ -94,96 +52,121 @@ The installer backs up current runtime resources before linking this repo into `
 
 ## Direct-only operation
 
-Every request is handled by the normal Pi agent path. Nothing is classified, routed, or handed to a
-pipeline stage automatically. There is no `/flow`, no `/mode`, no `workflow` tool, no F6 binding, and
-no planner/coder/debugger/reviewer rail.
+Every request is handled by the normal Pi agent path. Nothing is classified or routed automatically. There is no `/flow`, no `/mode`, no `workflow` tool, and no planner/coder/debugger/reviewer rail.
 
-Subagents are **manual**: you spawn them explicitly with the subagent tools when you want one. They
-are never selected for you, and no model is chosen on your behalf by a routing decision.
+Subagents are **manual**: you spawn them explicitly with the subagent tools when you want one.
 
-Agent rows show elapsed time, completed assistant turns (`1t` = one turn), and measured context-window use (`<1% ctx`, for example). Context use is not task-completion progress; unavailable usage shows no percentage.
+### Herdr: the subagent fleet
 
-Stage profiles:
+Three properties are enforced, not conventions:
 
-| Stage | Harness | Model | Default effort |
-| --- | --- | --- | --- |
-| planner | Claude Code | Opus 5 | high |
-| coder | Pi (OpenCodeGo) | DeepSeek V4 Flash | high |
-| debugger | Codex (OpenAI) | GPT-5.6 Luna | max |
-| reviewer | Pi (OpenRouter) | Grok 4.5 | high |
+- **Read-only.** Every subagent runs without the ability to write files or run
+  shell commands. `pi` excludes the write tools, `claude` gets a read-only
+  allowlist plus an explicit deny list, `codex` runs in its read-only sandbox,
+  and the CLI harnesses append their read-only argv. A harness that cannot
+  express read-only refuses to spawn rather than quietly running writable.
+- **No takeover.** `/subagents` is a transcript viewer: scroll and abort, no
+  input line and no send path. The model can still continue a child with
+  `subagent_send`; a human cannot seize its turn.
+- **Max 4 concurrent** across all harnesses.
 
-Fallbacks (prefer the primary route; a fallback is used only when the primary is
-unavailable and is always reported to Vraj before being accepted):
+| Slug     | Backend               | Notes                                        |
+| -------- | --------------------- | -------------------------------------------- |
+| `pi`     | in-process pi session | inherits this environment's tools and config |
+| `claude` | Claude Agent SDK      |                                              |
+| `codex`  | `codex app-server`    |                                              |
+| `agy`    | generic one-shot CLI  | needs `agy`/`antigravity` on PATH            |
+| `omp`    | generic one-shot CLI  | needs `omp` on PATH                          |
+| `grok`   | generic one-shot CLI  | needs `grok` on PATH                         |
 
-- **planner:** Claude Code with Claude subscription (Opus 5 / Sonnet 5 / Haiku 5; no OpenRouter).
-- **coder:** DeepSeek V4 Flash via OpenRouter; fallback OpenCodeGo subscription when OpenRouter quota is reached.
-- **debugger:** GPT-5.6 Luna via OpenRouter; fallback OpenAI subscription, then OpenCodeGo subscription when OpenRouter quota is reached.
-- **reviewer:** Grok 4.5 via OpenRouter; fallback OpenCodeGo subscription when the OpenRouter daily limit is reached.
+`agy`, `omp`, and `grok` are driven through a shared one-shot CLI backend whose
+argv is _data_: each ships a default and each is overridable at
+`vraj.subagents.cli.<slug>` in settings. A missing binary reports the harness as
+unavailable with a clear message; it never breaks startup.
 
-These match `STAGE_PROFILES` in `extensions/workflow/src/policy.ts`, which is the pinned source of truth.
-
-A stage child cannot spawn children. It may return a validated `helper_request`; the Sol coordinator brokers sibling helpers and sends bounded results back.
+Agent rows show elapsed time, completed assistant turns (`1t` = one turn), and
+measured context-window use (`<1% ctx`, for example). Unavailable usage shows no
+percentage.
 
 ## Status surface
 
-The primary status surface is the **belowEditor** widget — a live panel rendered below the prompt showing any running manual subagents and the active issue rows. The footer handles telemetry only (cwd, runtime/model, usage, git/PR).
+The primary status surface is the **belowEditor** widget — running subagents
+below the prompt. The footer is telemetry only (cwd, runtime/model, usage, git/PR).
 
-The surface carries no mode, route, or stage labels — those concepts no longer exist. The tracker poll interval (`workflow.trackerPollMs`, default 10000) and the surface runaway ceiling (`workflow.statusWidget.maxLines`, default 40) are configurable in `settings.example.json`.
+**Subagent picker.** DOWN opens the subagent picker only when a subagent is running;
+`alt+down` opens it anytime. DOWN opens a view only — sending to a subagent remains
+the explicit in-view send action (PI-11, INV-20).
 
-**Subagent picker.** DOWN opens the subagent picker only when a subagent is running; `alt+down` opens it anytime. DOWN opens a view only — sending to a subagent remains the explicit in-view send action (PI-11, INV-20). The picker trigger can be disabled with `workflow.subagentPicker.downArrow: false` in `settings.example.json`.
+## PI Usage Statistics
 
-## Routines
+A local, rebuildable index of the pi session logs under `~/.pi/agent/sessions`.
+Nothing leaves the machine: the dashboard binds to loopback and the page has no
+remote assets.
 
-Periodic scheduled prompts (like Claude Code routines) are configured under `workflow.routines` in settings. Each routine has a name, a prompt/task template, and a schedule (fixed interval in ms, with optional `at` minutes-of-day for time-of-day pinning). The scheduler is single-flight per routine and runs off the render path (INV-10, INV-13).
+- `/usage` — open the dashboard (ten sections, six ranges)
+- `/usage summary [range]` — the overview in the transcript
+- `/usage sync` — index new sessions now
+- `/usage rebuild` — drop the index and re-read every session log
+- `usage_stats` tool — any page as Markdown, for the model
 
-### Commands
+Two honesty rules are built in, because a confident wrong number is worse than
+no number:
 
-- `/routine` — bare picker of available (enabled, not snoozed) routines.
-- `/routine run <name>` — classify the routine's prompt and execute it.
-- `/routine snooze <name> [minutes]` — skip N minutes (default 60, max 10080).
-- `/routine disable <name>` — disable the routine.
-- `/routine enable <name>` — re-enable.
+- **Latency and tokens/second are derived** from entry timestamps (pi records no
+  request duration), so they include local tool time, and gaps below 250 ms or
+  above 10 minutes are reported as unknown rather than as a measurement.
+- **Subscription limits are labelled `reported` or `estimated`.** `reported`
+  rows come from the provider's own rate-limit response headers, recorded as
+  they arrive. `estimated` rows are inferred from observed burn against a plan
+  budget you configure at `vraj.usage.budgets`; there is no shipped default,
+  because guessing someone's plan would manufacture a number. A provider that
+  reports its own limits is never overridden by an estimate.
 
-### Surface
+Ported from oh-my-pi's `packages/stats` (MIT) — see `PROVENANCE.md` for what was
+taken, what was adapted, and why.
 
-Due routines appear as a `─ routines · N due ─` section in the belowEditor widget, with name, schedule summary, and status token (`due now`, `~5m`, `snoozed (30m)`, `disabled`). A due routine only ever shows a banner; it never runs itself and is never routed anywhere.
+## Other surfaces
 
-### Scheduler semantics
+| Surface                                            | What it does                                                                                                                                                            |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/skills`                                          | Per-skill checkbox manager grouped by scope. Disabling removes the skill from `<available_skills>` in the system prompt on the next turn. `/skill:name` still loads it. |
+| `/context-audit`                                   | Ranks what is filling the window and warns about every contributor over 5,000 estimated tokens.                                                                         |
+| `/copy-all`, `/copy-last`, `/copy-code`, `/export` | Copy or export the thread. Secrets are redacted before anything reaches a clipboard or a file.                                                                          |
+| `/files [filter]`                                  | Browse the working tree and insert a repo-relative file reference. Cannot navigate outside the working directory.                                                       |
+| `/raw [handle]`, `read_raw_output`                 | Recover the original behind a compressed tool output.                                                                                                                   |
+| `/safety [on\|off\|strict\|rules]`                 | Blocks a small set of catastrophic shell commands.                                                                                                                      |
+| `/no-sleep [on\|off\|agent\|session]`              | Holds the machine awake while a turn runs.                                                                                                                              |
+| `/features`                                        | What this harness provides and which optional dependencies are actually installed.                                                                                      |
+| `/continue`, `shift+alt+enter`                     | Send "continue" when the agent is stopped. Never steers a live run.                                                                                                     |
+| Git context                                        | A compact branch/working-tree/recent-commits block is injected before the turn, only when the repository state changed.                                                 |
 
-- **Interval:** `scheduleMs` (ms, clamped `[60000, 604800000]`).
-- **at:** optional minutes-of-day (0–1439) for time-of-day pinning. When both `scheduleMs` and `at` are present, the first fire aligns to the next `at` minute; subsequent fires use the interval from that anchor.
-- **Snooze:** skip until `snoozedUntil` passes.
-- **Disable:** remove from the active list; re-enable restores it.
-- **Concurrency:** single-flight per routine; a slow handler never overlaps.
-- **Failure:** per-routine isolation; a broken routine never kills the scheduler.
+## Provenance and mirroring
 
-A routine is surfaced only; it is never classified, routed, or auto-sent, and the routine system never spawns or sends on the subagent bridge by itself.
+```sh
+npm run check:provenance     # vendored code still carries its attribution
+npm run update-upstream      # report upstream changes since the pin (applies nothing)
+npm run update-upstream -- --pr   # also write UPSTREAM-UPDATE.md for a draft PR
 
-Routine definitions are stored in `settings.json` → `workflow.routines`. The scheduler starts at session start and stops on session shutdown (no leaked timers, INV-18). Settings changes via `/routine` refresh the scheduler without leaking timers.
-
-Example settings block:
-
-```json
-{
-  "workflow": {
-    "routines": [
-      {
-        "name": "standup",
-        "scheduleMs": 86400000,
-        "at": [540],
-        "prompt": "Summarize yesterday's work",
-        "enabled": true
-      }
-    ]
-  }
-}
+../scripts/mirror-check.sh   # drift between pi/ and the vraj-ai/pi mirror
+../scripts/mirror-sync.sh    # copy pi/ into a mirror clone; never commits or pushes
 ```
+
+`update-upstream` deliberately applies nothing: these ports are adaptations, not
+copies, so a mechanical merge would either clobber the adaptation or produce a
+conflict nobody can resolve without reading both sides anyway.
 
 ## Checks
 
 ```sh
 npm install
+npm run gates          # check + check:provenance + test
+```
+
+or individually:
+
+```sh
 npm run check
+npm run check:provenance
 npm run format:check
 npm test
 ```
@@ -194,4 +177,4 @@ Tests are proportional: prefer one focused production-seam check that proves rel
 
 ## Concise output
 
-The installer declares the Ponytail package and adds a local terse-output policy. Routine replies use concise, Caveman-style evidence; security warnings, irreversible action confirmations, and multi-step sequences are never compressed.
+Terse output is a local skill (`skills/terse-output`), not a Pi package. The installer does not declare Ponytail in `settings.packages`; that family lives in the skills repository, and declaring it here too installs it twice under colliding local names. Routine replies use concise, Caveman-style evidence; security warnings, irreversible action confirmations, and multi-step sequences are never compressed.

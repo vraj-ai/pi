@@ -74,34 +74,18 @@ test("resolvePickerEnabled is true unless downArrow is exactly false", () => {
   assert.equal(resolvePickerEnabled(), true);
   assert.equal(resolvePickerEnabled(null), true);
   assert.equal(resolvePickerEnabled({}), true);
-  assert.equal(resolvePickerEnabled({ workflow: {} }), true);
+  assert.equal(resolvePickerEnabled({ "vraj.subagents.picker": {} }), true);
   assert.equal(
-    resolvePickerEnabled({ workflow: { subagentPicker: {} } }),
+    resolvePickerEnabled({ "vraj.subagents.picker": { downArrow: true } }),
     true,
   );
   assert.equal(
-    resolvePickerEnabled({ workflow: { subagentPicker: { downArrow: true } } }),
-    true,
-  );
-  assert.equal(
-    resolvePickerEnabled({
-      workflow: { subagentPicker: { downArrow: "yes" } },
-    }),
-    true,
-  );
-  assert.equal(
-    resolvePickerEnabled({ workflow: { subagentPicker: { downArrow: 0 } } }),
-    true,
-  );
-  assert.equal(
-    resolvePickerEnabled({
-      workflow: { subagentPicker: { downArrow: false } },
-    }),
+    resolvePickerEnabled({ "vraj.subagents.picker": { downArrow: false } }),
     false,
   );
 
   const throwingSettings = {};
-  Object.defineProperty(throwingSettings, "workflow", {
+  Object.defineProperty(throwingSettings, "vraj.subagents.picker", {
     get() {
       throw new Error("malformed settings");
     },

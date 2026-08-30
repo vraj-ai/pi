@@ -897,7 +897,8 @@ const makeCodexSession = (
         return request("thread/start", {
           cwd: task.cwd,
           approvalPolicy: "never",
-          sandbox: "danger-full-access",
+          // Herdr read-only enforcement: codex's own read-only sandbox.
+          sandbox: task.readOnly ? "read-only" : "danger-full-access",
           ephemeral: false,
           ...(task.model ? { model: task.model } : {}),
         });
