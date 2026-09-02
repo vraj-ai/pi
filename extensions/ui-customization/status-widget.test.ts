@@ -166,23 +166,21 @@ test("layoutColumns right-aligns numeric cells", () => {
   assert.ok(visibleWidth(rows[0]) <= 40);
 });
 
-test("glyphs for running/done/idle/error are distinct without colour", () => {
+test("only running agents occupy dashboard rows", () => {
   const result = renderStatusWidget(
     state({
       now: 100_000,
       agents: [
-        agent({ label: "r", status: "running" }),
-        agent({ label: "d", status: "done" }),
-        agent({ label: "e", status: "error" }),
-        agent({ label: "i", status: "idle" }),
+        agent({ label: "running-agent", status: "running" }),
+        agent({ label: "done-agent", status: "done" }),
+        agent({ label: "error-agent", status: "error" }),
+        agent({ label: "idle-agent", status: "idle" }),
       ],
     }),
   );
-  const text = result.join("\n");
-  assert.match(text, /◉/);
-  assert.match(text, /✓/);
-  assert.match(text, /×/);
-  assert.match(text, /·/);
+  assert.equal(result.length, 2);
+  assert.match(result[1], /running-agent/);
+  assert.doesNotMatch(result.join("\n"), /done-agent|error-agent|idle-agent/);
 });
 
 test("normalizeMaxLines maps 0 to unlimited and clamps the rest", () => {

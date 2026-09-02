@@ -190,7 +190,12 @@ function agentRows(
 ) {
   const showBackend = width >= 100;
   const rows = agents
-    .filter((a) => a != null && typeof a === "object")
+    .filter(
+      (agent) =>
+        agent != null &&
+        typeof agent === "object" &&
+        agent.status === "running",
+    )
     .map((agent) => {
       const label = safeToken(agent.label, "agent");
       const glyph = agentGlyph(agent.status);
