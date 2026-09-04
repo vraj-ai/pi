@@ -25,7 +25,7 @@ Everything here gets linked (or copied) into `~/.pi/agent` by `./install.sh`:
 - `extensions/summaries` — session summarisation.
 - `extensions/file-search` — `fd` / `rg` tools.
 - `extensions/git-info`, `extensions/model-info` — git context and footer telemetry.
-- `skills/` — local skill packages (background-terminals, subagents, terse-output).
+- `skills/` — local skill packages (background-terminals, subagents, terse-output, pi-setup-maintenance, pi-usage-maintenance).
 - `themes/cobalt-ink.json` — the default deep-cobalt dark theme; `themes/vraj-ink.json` is still shipped.
 - `keybindings.json` — personal keybinding overrides.
 - `SETUP.md` — install, backup, and rollback details.
