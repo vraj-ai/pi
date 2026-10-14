@@ -33,6 +33,32 @@ function readSettings(path: string) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
+test("OpenCode Go setup and skill loading are documented", () => {
+  const opencode = readFileSync(join(root, "docs", "opencode-go.md"), "utf8");
+  const skills = readFileSync(join(root, "docs", "skills.md"), "utf8");
+  const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
+  const notify = readFileSync(
+    join(root, "extensions", "skills-manager", "index.ts"),
+    "utf8",
+  );
+  assert.match(opencode, /opencode-go/);
+  assert.match(opencode, /OPENCODE_API_KEY/);
+  assert.match(opencode, /auth\.json/);
+  assert.match(skills, /~\/\.pi\/agent\/skills/);
+  assert.match(skills, /~\/\.agents\/skills/);
+  assert.match(skills, /disable-model-invocation/);
+  assert.match(agents, /verify-pi/);
+  assert.match(agents, /poteto-mode/);
+  assert.match(notify, /~\/\.pi\/agent\/skills/);
+  assert.doesNotMatch(notify, /docs\/skills\.md/);
+  for (const contents of [opencode, skills, agents, notify]) {
+    assert.doesNotMatch(
+      contents,
+      /(?:sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9._~+/=-]{20,})/,
+    );
+  }
+});
+
 test("README documents alt+down and the running-only DOWN gate", () => {
   const readmeText = readFileSync(readme, "utf8");
   assert.match(readmeText, /alt\+down/);

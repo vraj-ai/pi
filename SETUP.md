@@ -202,6 +202,16 @@ To pick a different one, set it in `~/.pi/agent/settings.json` while keeping you
 
 Pi will load the extensions, skills, and theme from their directories the next time it starts.
 
+## OpenCode Go
+
+Pi 0.82.0 already includes provider `opencode-go` (OpenCode Zen Go). It uses `OPENCODE_API_KEY` or an `auth.json` entry under the key `opencode-go`. That is separate from OpenCode Zen (`opencode`), which shares the same environment variable. The seeded default stays `openai-codex` / `gpt-5.6-sol`. Full steps, the credential order, and the bundled model table are in `docs/opencode-go.md`. Do not put a key in this repo.
+
+`settings.example.json` also shows Pi's default `compaction` and `retry` objects. A fresh install does not write those keys; they already match the Pi 0.82.0 runtime defaults.
+
+## Skills
+
+The installer links `skills/` into the agent directory, so those packages are global on the next Pi start. Pi's other locations, `/skills` toggles, and the manual-only skills are in `docs/skills.md`.
+
 ## Message delivery
 
 The installed Pi runtime accepts `"all"` and `"one-at-a-time"` for `steeringMode`; `"one-at-a-time"` is its default. This setup uses `"one-at-a-time"` so queued messages stay serial with the coordinator. That setting controls Pi's message queue only. There is no automatic routing and no stage relay: requests are handled directly, and any subagent is spawned manually.
