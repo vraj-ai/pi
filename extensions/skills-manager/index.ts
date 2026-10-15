@@ -79,7 +79,7 @@ export default function skillsManager(pi: ExtensionAPI) {
       const skills = skillsFor(ctx);
       if (skills.length === 0) {
         ctx.ui.notify(
-          "No skills are loaded in this session. See docs/skills.md for skill locations.",
+          "No skills are loaded in this session. Pi scans ~/.pi/agent/skills, ~/.agents/skills, and trusted project .pi/skills and .agents/skills.",
           "info",
         );
         return;

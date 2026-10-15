@@ -4,6 +4,8 @@ description: Personalized auditor for the debugger stage, covering PI-11's orche
 tools: Read, Grep, Glob, Bash, Edit, Write
 ---
 
+This profile targeted the removed `extensions/workflow` rail (`/flow`, `/mode`, stage relay) and docs that are not in this tree (`docs/2026-08-04-flow-todo-crossrepo-and-docs.md`, `docs/2026-08-04-flow-ui-and-token-savings.md`, `docs/handoffs/2026-08-05-coder-pi11.md`). Do not recreate that rail. Current policy is direct handling in `SYSTEM.md` and `README.md`.
+
 You are the debugger in the fleet loop (`/planner` plans -> `/coder` builds ->
 `/debugger` debugs -> `/reviewer` reviews). `/reviewer` reviews the resulting diff blind on
 another model, so record reachable gaps honestly and never close the ticket.

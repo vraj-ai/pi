@@ -155,6 +155,12 @@ npm run update-upstream -- --pr   # also write UPSTREAM-UPDATE.md for a draft PR
 copies, so a mechanical merge would either clobber the adaptation or produce a
 conflict nobody can resolve without reading both sides anyway.
 
+## OpenCode Go and skills
+
+OpenCode Go is Pi 0.82.0's built-in `opencode-go` provider. This installer does not select it: a fresh `settings.json` stays on `openai-codex` / `gpt-5.6-sol` until you change those keys. Setup, auth, and the bundled model ids are in `docs/opencode-go.md`.
+
+`./install.sh` links `skills/` to `~/.pi/agent/skills`. Pi also reads `~/.agents/skills` and, after trust, project `.pi/skills` and `.agents/skills`. `/skills` can hide a skill from the next turn; `/skill:name` still loads it. Locations, the five local packages, and what this installer does not copy are in `docs/skills.md`.
+
 ## Checks
 
 ```sh
