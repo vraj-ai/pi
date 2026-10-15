@@ -56,15 +56,16 @@ find -L "$agent/skills" -name SKILL.md | sort
 
 `find` without `-L` does not walk the skills symlink. The installer refuses a target inside the checkout.
 
-OpenCode Go, no network and no key (feature `opencode-go`):
+OpenCode Go catalog, no network (feature `opencode-go`):
 
 ```sh
-unset OPENCODE_API_KEY
-node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --list-models opencode-go
 node --input-type=module -e 'import data from "./node_modules/@earendil-works/pi-ai/dist/providers/data/opencode-go.json" with { type: "json" }; const ids = Object.values(data).flatMap((group) => Object.keys(group)); if (!ids.includes("kimi-k2.6")) process.exit(1); console.log(ids.length);'
+if [ -z "${OPENCODE_API_KEY+x}" ] && [ ! -e "${HOME}/.pi/agent/auth.json" ]; then
+  node node_modules/@earendil-works/pi-coding-agent/dist/cli.js --list-models opencode-go
+fi
 ```
 
-The CLI without a key prints `No models available`. The second command reads the bundled catalog only. If `OPENCODE_API_KEY` or `~/.pi/agent/auth.json` is already set, do not unset a key you did not export in this shell, do not print it, and do not send a prompt. Stop the OpenCode Go feature at the catalog read.
+The catalog command reads the bundled file only. Do not unset `OPENCODE_API_KEY`. Do not read or print `auth.json`. Run `--list-models` only when that variable is unset and `auth.json` is absent; it then prints `No models available`. If either is present, skip the list command and keep the catalog result. Do not send a prompt.
 
 ## Evidence
 
